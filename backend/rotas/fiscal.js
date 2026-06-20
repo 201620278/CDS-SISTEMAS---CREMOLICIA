@@ -129,9 +129,14 @@ router.put('/config', carregarPerfilUsuario, async (req, res) => {
     }
 
     const entries = Object.entries(payload);
+    console.log(`[FISCAL CONFIG PUT] Salvando ${entries.length} configurações:`, JSON.stringify(payload, null, 2));
+
     for (const [chave, valor] of entries) {
+      console.log(`[FISCAL CONFIG PUT] Salvando: ${chave} = ${valor}`);
       await setConfiguracao(chave, String(valor ?? ''), 'string', `Configuração fiscal: ${chave}`);
+      console.log(`[FISCAL CONFIG PUT] Salvo com sucesso: ${chave}`);
     }
+    console.log('[FISCAL CONFIG PUT] Todas as configurações salvas com sucesso');
     res.json({ message: 'Configurações fiscais atualizadas com sucesso.' });
   } catch (error) {
     res.status(500).json({ error: error.message });

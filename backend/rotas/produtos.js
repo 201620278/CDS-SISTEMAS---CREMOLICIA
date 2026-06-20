@@ -5,6 +5,111 @@ const db = require('../database');
 const { gravarAuditoria } = require('../services/auditoria');
 const { verificarPermissaoEspecifica } = require('./auth');
 
+function produtosTemColuna(nomeColuna, callback) {
+  db.all(`PRAGMA table_info(produtos)`, [], (err, cols) => {
+    if (err) return callback(err, false);
+    callback(null, (cols || []).some((col) => col.name === nomeColuna));
+  });
+}
+
+const CAMPOS_PRODUTO_IGNORADOS = new Set([
+  'id',
+  'created_at',
+  'updated_at',
+  'atacado_faixas',
+  'categoria',
+  'subcategoria',
+  'categoria_nome',
+  'subcategoria_nome',
+  'preco_atacado',
+  'quantidade_minima_atacado',
+  'dias_para_vencer',
+  'status_validade',
+  'message'
+]);
+
+function inserirFaixasAtacadoProduto(produtoId, faixas, callback) {
+  const lista = Array.isArray(faixas) ? faixas : [];
+  if (!lista.length) {
+    return callback(null);
+  }
+
+  let indice = 0;
+
+  function inserirProxima() {
+    if (indice >= lista.length) {
+      return callback(null);
+    }
+
+    const faixa = lista[indice];
+    indice += 1;
+
+    const quantidadeMinima = parseInt(faixa?.quantidade_minima, 10);
+    const precoAtacado = parseFloat(faixa?.preco_atacado);
+
+    if (!Number.isInteger(quantidadeMinima) || quantidadeMinima <= 0) {
+      return inserirProxima();
+    }
+
+    if (Number.isNaN(precoAtacado) || precoAtacado <= 0) {
+      return inserirProxima();
+    }
+
+    db.run(
+      `INSERT INTO produto_atacado (produto_id, quantidade_minima, preco_atacado) VALUES (?, ?, ?)`,
+      [produtoId, quantidadeMinima, precoAtacado],
+      (err) => {
+        if (err) {
+          return callback(err);
+        }
+        inserirProxima();
+      }
+    );
+  }
+
+  inserirProxima();
+}
+
+function buscarProdutoCompleto(produtoId, callback) {
+  db.get(`
+    SELECT 
+      p.*, 
+      (SELECT preco_atacado FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS preco_atacado,
+      (SELECT quantidade_minima FROM produto_atacado WHERE produto_id = p.id ORDER BY quantidade_minima ASC LIMIT 1) AS quantidade_minima_atacado,
+      c.nome AS categoria_nome,
+      s.nome AS subcategoria_nome
+    FROM produtos p
+    LEFT JOIN categorias c ON c.id = p.categoria_id
+    LEFT JOIN subcategorias s ON s.id = p.subcategoria_id
+    WHERE p.id = ?
+  `, [produtoId], (err, row) => {
+    if (err) {
+      return callback(err);
+    }
+
+    if (!row) {
+      return callback(null, null);
+    }
+
+    db.all(
+      `SELECT * FROM produto_atacado WHERE produto_id = ? ORDER BY quantidade_minima ASC`,
+      [produtoId],
+      (faixaErr, faixas) => {
+        if (faixaErr) {
+          return callback(faixaErr);
+        }
+
+        callback(null, {
+          ...row,
+          categoria: row.categoria_nome || '',
+          subcategoria: row.subcategoria_nome || '',
+          atacado_faixas: faixas || []
+        });
+      }
+    );
+  });
+}
+
 
 // LISTAR PRODUTOS
 router.get('/', (req, res) => {
@@ -352,25 +457,13 @@ router.get('/vencimentos/alertas', (req, res) => {
 
 // Obter sugestões de promoções
 router.get('/promocoes/sugestoes', (req, res) => {
-  db.all(`
-    SELECT 
-      ps.*,
-      p.nome AS nome_produto,
-      p.codigo,
-      p.estoque_atual,
-      p.data_validade,
-      p.dias_alerta_validade,
-      CAST(julianday(date(p.data_validade)) - julianday(date('now', 'localtime')) AS INTEGER) AS dias_para_vencer
-    FROM promocoes_sugestoes ps
-    LEFT JOIN produtos p ON p.id = ps.produto_id
-    WHERE ps.ativo = 1 AND ps.aceito_em IS NULL AND ps.rejeitado_em IS NULL
-    ORDER BY ps.criado_em DESC
-  `, [], (err, rows) => {
-    if (err) {
-      console.error('Erro ao listar sugestões de promoções:', err.message);
-      return res.status(500).json({ error: err.message });
+  const descontoPercentual = Number(req.query.desconto_percentual) || 15;
+
+  revalidarSugestoesPendentes(descontoPercentual, (revalErr) => {
+    if (revalErr) {
+      console.error('Erro na revalidação ao listar sugestões:', revalErr.message);
     }
-    res.json(rows || []);
+    listarSugestoesPromocoes(res);
   });
 });
 
@@ -611,6 +704,299 @@ router.put('/promocoes/:id/encerrar', (req, res) => {
 });
 
 // Gerar sugestões de promoções automaticamente
+function produtoControlaValidade(produto) {
+  return Number(produto?.controlar_validade) === 1;
+}
+
+function ehTipoValidade(tipo) {
+  return ['vencido', 'vence_hoje', 'vence_3', 'vence_7'].includes(tipo);
+}
+
+function classificarProduto(produto) {
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  let sugestao = null;
+
+  if (
+    produtoControlaValidade(produto) &&
+    produto.data_validade &&
+    produto.data_validade !== '0000-00-00'
+  ) {
+    const validade = new Date(produto.data_validade);
+    validade.setHours(0, 0, 0, 0);
+
+    const dias = Math.floor((validade - hoje) / 86400000);
+
+    if (dias < 0) {
+      sugestao = {
+        tipo: 'vencido',
+        texto: '🔴 Produto Vencido',
+        prioridade: 100
+      };
+    } else if (dias === 0) {
+      sugestao = {
+        tipo: 'vence_hoje',
+        texto: '🔴 Vence Hoje',
+        prioridade: 90
+      };
+    } else if (dias <= 3) {
+      sugestao = {
+        tipo: 'vence_3',
+        texto: '🔴 Vence em até 3 dias',
+        prioridade: 80
+      };
+    } else if (dias <= 7) {
+      sugestao = {
+        tipo: 'vence_7',
+        texto: '🟠 Vence em até 7 dias',
+        prioridade: 70
+      };
+    }
+  }
+
+  if (!sugestao) {
+    if (produto.ultima_venda) {
+      const ultimaVenda = new Date(produto.ultima_venda);
+      ultimaVenda.setHours(0, 0, 0, 0);
+
+      const diasSemVenda = Math.floor((hoje - ultimaVenda) / 86400000);
+
+      if (diasSemVenda >= 60) {
+        sugestao = {
+          tipo: 'encalhado',
+          texto: '🔴 Produto Encalhado',
+          prioridade: 60
+        };
+      } else if (diasSemVenda >= 30) {
+        sugestao = {
+          tipo: 'parado',
+          texto: '⚫ Produto Parado',
+          prioridade: 50
+        };
+      } else if (diasSemVenda >= 15) {
+        sugestao = {
+          tipo: 'giro_baixo',
+          texto: '🟡 Giro Baixo',
+          prioridade: 40
+        };
+      }
+    } else {
+      sugestao = {
+        tipo: 'sem_vendas',
+        texto: '🔴 Nunca Vendeu',
+        prioridade: 65
+      };
+    }
+  }
+
+  return sugestao;
+}
+
+function calcularDiasParaVencer(dataValidade, controlarValidade) {
+  if (!controlarValidade || !dataValidade || dataValidade === '0000-00-00') return null;
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const validade = new Date(dataValidade);
+  validade.setHours(0, 0, 0, 0);
+
+  return Math.floor((validade - hoje) / 86400000);
+}
+
+function calcularDiasSemVenda(ultimaVenda) {
+  if (!ultimaVenda) return null;
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const ultima = new Date(ultimaVenda);
+  ultima.setHours(0, 0, 0, 0);
+
+  return Math.floor((hoje - ultima) / 86400000);
+}
+
+const SQL_ULTIMA_VENDA_PRODUTO = `
+  (
+    SELECT MAX(v.data_venda)
+    FROM vendas_itens vi
+    INNER JOIN vendas v ON v.id = vi.venda_id
+    WHERE vi.produto_id = p.id
+      AND (v.status IS NULL OR v.status != 'cancelada')
+  )
+`;
+
+function revalidarSugestoesPendentes(descontoPercentual, callback) {
+  db.all(`
+    SELECT
+      ps.id AS sugestao_id,
+      p.id,
+      p.nome,
+      p.estoque_atual,
+      p.controlar_validade,
+      p.data_validade,
+      p.preco_venda,
+      ${SQL_ULTIMA_VENDA_PRODUTO} AS ultima_venda
+    FROM promocoes_sugestoes ps
+    INNER JOIN produtos p ON p.id = ps.produto_id
+    WHERE ps.ativo = 1
+      AND ps.aceito_em IS NULL
+      AND ps.rejeitado_em IS NULL
+  `, [], (err, rows) => {
+    if (err) {
+      console.error('Erro ao revalidar sugestões pendentes:', err.message);
+      return callback(err);
+    }
+
+    const lista = rows || [];
+    if (!lista.length) return callback(null, 0);
+
+    let indice = 0;
+    let atualizadas = 0;
+
+    function processarProxima() {
+      if (indice >= lista.length) {
+        return callback(null, atualizadas);
+      }
+
+      const row = lista[indice];
+      indice += 1;
+      const classificacao = classificarProduto(row);
+
+      if (!classificacao) {
+        db.run('DELETE FROM promocoes_sugestoes WHERE id = ?', [row.sugestao_id], () => {
+          processarProxima();
+        });
+        return;
+      }
+
+      const diasParaVencer = ehTipoValidade(classificacao.tipo)
+        ? calcularDiasParaVencer(row.data_validade, true)
+        : null;
+      const precoSugerido = Number((row.preco_venda * (1 - descontoPercentual / 100)).toFixed(2));
+
+      db.run(`
+        UPDATE promocoes_sugestoes
+        SET motivo = ?,
+            dias_para_vencer = ?,
+            estoque_atual = ?,
+            preco_atual = ?,
+            preco_sugerido = ?,
+            desconto_percentual = ?
+        WHERE id = ?
+      `, [
+        classificacao.texto,
+        diasParaVencer,
+        row.estoque_atual,
+        row.preco_venda,
+        precoSugerido,
+        descontoPercentual,
+        row.sugestao_id
+      ], (updateErr) => {
+        if (!updateErr) atualizadas += 1;
+        processarProxima();
+      });
+    }
+
+    processarProxima();
+  });
+}
+
+function listarSugestoesPromocoes(res) {
+  db.all(`
+    SELECT 
+      ps.*,
+      p.nome AS nome_produto,
+      p.codigo,
+      p.estoque_atual,
+      p.controlar_validade,
+      p.data_validade,
+      p.dias_alerta_validade,
+      ${SQL_ULTIMA_VENDA_PRODUTO} AS ultima_venda,
+      CASE
+        WHEN COALESCE(p.controlar_validade, 0) = 1
+          AND p.data_validade IS NOT NULL
+          AND p.data_validade != ''
+          AND p.data_validade != '0000-00-00'
+        THEN CAST(julianday(date(p.data_validade)) - julianday(date('now', 'localtime')) AS INTEGER)
+        ELSE NULL
+      END AS dias_para_vencer
+    FROM promocoes_sugestoes ps
+    LEFT JOIN produtos p ON p.id = ps.produto_id
+    WHERE ps.ativo = 1 AND ps.aceito_em IS NULL AND ps.rejeitado_em IS NULL
+    ORDER BY
+      CASE ps.motivo
+        WHEN '🔴 Produto Vencido' THEN 100
+        WHEN '🔴 Vence Hoje' THEN 90
+        WHEN '🔴 Vence em até 3 dias' THEN 80
+        WHEN '🟠 Vence em até 7 dias' THEN 70
+        WHEN '🔴 Nunca Vendeu' THEN 65
+        WHEN '🔴 Produto Encalhado' THEN 60
+        WHEN '⚫ Produto Parado' THEN 50
+        WHEN '🟡 Giro Baixo' THEN 40
+        ELSE 0
+      END DESC,
+      ps.criado_em DESC
+  `, [], (err, rows) => {
+    if (err) {
+      console.error('Erro ao listar sugestões de promoções:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    const sugestoes = (rows || []).map((row) => {
+      const diasSemVenda = calcularDiasSemVenda(row.ultima_venda);
+      return {
+        ...row,
+        dias_sem_venda: diasSemVenda
+      };
+    });
+
+    res.json(sugestoes);
+  });
+}
+
+function inserirSugestoesPromocoes(sugestoes, indice, inseridas, callback) {
+  if (indice >= sugestoes.length) {
+    return callback(inseridas);
+  }
+
+  const sugestao = sugestoes[indice];
+  const diasParaVencer = ehTipoValidade(sugestao.tipo)
+    ? calcularDiasParaVencer(sugestao.data_validade, true)
+    : null;
+
+  db.run(`
+    INSERT INTO promocoes_sugestoes (
+      produto_id,
+      motivo,
+      dias_para_vencer,
+      estoque_atual,
+      preco_atual,
+      preco_sugerido,
+      desconto_percentual,
+      ativo
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+  `, [
+    sugestao.produto_id,
+    sugestao.motivo,
+    diasParaVencer,
+    sugestao.estoque,
+    sugestao.preco_atual,
+    sugestao.preco_sugerido,
+    sugestao.desconto_percentual
+  ], (insertErr) => {
+    if (insertErr) {
+      console.error('Erro ao inserir sugestão de promoção:', insertErr.message);
+    }
+
+    inserirSugestoesPromocoes(
+      sugestoes,
+      indice + 1,
+      inseridas + (insertErr ? 0 : 1),
+      callback
+    );
+  });
+}
+
 router.post('/promocoes/gerar-sugestoes', (req, res) => {
   const { produto_ids = [], desconto_percentual = 15 } = req.body;
 
@@ -619,115 +1005,180 @@ router.post('/promocoes/gerar-sugestoes', (req, res) => {
     return res.status(400).json({ error: 'Desconto deve estar entre 1% e 100%' });
   }
 
-  // Limpar sugestões antigas (mais de 30 dias)
+  // Limpar sugestões antigas (mais de 30 dias) e formato legado
   db.run(`
     DELETE FROM promocoes_sugestoes 
     WHERE ativo = 1 
       AND aceito_em IS NULL 
       AND rejeitado_em IS NULL 
-      AND julianday('now') - julianday(criado_em) > 30
+      AND (
+        julianday('now') - julianday(criado_em) > 30
+        OR motivo = 'vencimento_proximo'
+      )
   `, (deleteErr) => {
     if (deleteErr) {
       console.error('Erro ao limpar sugestões antigas:', deleteErr.message);
     }
   });
 
-  // Determinar quais produtos processar
+  revalidarSugestoesPendentes(desconto_percentual, (revalErr) => {
+    if (revalErr) {
+      console.error('Erro na revalidação de sugestões:', revalErr.message);
+    }
+
   let query = `
-    SELECT DISTINCT p.id
+    SELECT
+      p.id,
+      p.nome,
+      p.codigo,
+      p.estoque_atual,
+      p.controlar_validade,
+      p.data_validade,
+      p.preco_venda,
+      ${SQL_ULTIMA_VENDA_PRODUTO} AS ultima_venda
     FROM produtos p
-    WHERE 
-      p.controlar_validade = 1 
-      AND p.data_validade IS NOT NULL 
-      AND p.data_validade != ''
-      AND date(p.data_validade) >= date('now', 'localtime')
-      AND CAST(julianday(date(p.data_validade)) - julianday(date('now', 'localtime')) AS INTEGER) <= COALESCE(NULLIF(p.dias_alerta_validade, 0), 30)
+    WHERE
+      __FILTRO_ATIVO__
+      p.estoque_atual > 0
       AND p.id NOT IN (
-        SELECT produto_id FROM promocoes_sugestoes 
-        WHERE motivo = 'vencimento_proximo' 
-          AND ativo = 1 
-          AND aceito_em IS NULL 
+        SELECT produto_id FROM promocoes_sugestoes
+        WHERE ativo = 1
+          AND aceito_em IS NULL
           AND rejeitado_em IS NULL
       )
   `;
 
-  // Se foram selecionados produtos específicos, filtrar apenas eles
+  const params = [];
+
   if (Array.isArray(produto_ids) && produto_ids.length > 0) {
     const placeholders = produto_ids.map(() => '?').join(',');
     query += ` AND p.id IN (${placeholders})`;
+    params.push(...produto_ids);
   }
 
-  db.all(query, produto_ids, (err, produtos) => {
-    if (err) {
-      console.error('Erro ao buscar produtos para sugestão:', err.message);
-      return res.status(500).json({ error: err.message });
+  produtosTemColuna('ativo', (colErr, temColunaAtivo) => {
+    if (colErr) {
+      console.error('Erro ao verificar coluna ativo em produtos:', colErr.message);
+      return res.status(500).json({ error: colErr.message });
     }
 
-    if (!produtos || produtos.length === 0) {
-      return res.json({ 
-        message: 'Nenhuma sugestão gerada. Nenhum produto com validade próxima encontrado.',
-        total: 0 
-      });
-    }
+    const filtroAtivo = temColunaAtivo ? 'COALESCE(p.ativo, 1) = 1 AND' : '';
+    query = query.replace('__FILTRO_ATIVO__', filtroAtivo);
 
-    let inseridas = 0;
-    const totalProdutos = produtos.length;
-    let processados = 0;
+    db.all(query, params, (err, produtos) => {
+      if (err) {
+        console.error('Erro ao buscar produtos para sugestão:', err.message);
+        return res.status(500).json({ error: err.message });
+      }
 
-    produtos.forEach(p => {
-      db.all(`
-        SELECT 
-          id,
-          nome,
-          preco_venda,
-          estoque_atual,
-          data_validade,
-          dias_alerta_validade
-        FROM produtos 
-        WHERE id = ?
-      `, [p.id], (err2, rows) => {
-        processados++;
+      const sugestoes = [];
 
-        if (err2 || !rows || rows.length === 0) {
-          if (processados === totalProdutos) {
-            res.json({ 
-              message: `Sugestões geradas com sucesso. Total: ${inseridas}`,
-              total: inseridas 
-            });
-          }
-          return;
+      for (const produto of produtos || []) {
+        const sugestao = classificarProduto(produto);
+
+        if (sugestao) {
+          sugestoes.push({
+            produto_id: produto.id,
+            nome: produto.nome,
+            estoque: produto.estoque_atual,
+            tipo: sugestao.tipo,
+            motivo: sugestao.texto,
+            prioridade: sugestao.prioridade,
+            data_validade: produto.data_validade,
+            preco_atual: produto.preco_venda,
+            preco_sugerido: Number((produto.preco_venda * (1 - desconto_percentual / 100)).toFixed(2)),
+            desconto_percentual
+          });
         }
+      }
 
-        const prod = rows[0];
-        const diasParaVencer = Math.floor(
-          (new Date(prod.data_validade) - new Date()) / (1000 * 60 * 60 * 24)
-        );
+      sugestoes.sort((a, b) => b.prioridade - a.prioridade);
 
-        const preco_sugerido = (prod.preco_venda * (1 - desconto_percentual / 100)).toFixed(2);
+      if (sugestoes.length === 0) {
+        const mensagem = (produtos || []).length > 0
+          ? 'Nenhuma sugestão necessária: os produtos analisados estão dentro dos critérios de validade e giro.'
+          : 'Nenhuma sugestão gerada. Todos os produtos com estoque já possuem sugestão pendente ou não há produtos elegíveis.';
 
-        db.run(`
-          INSERT INTO promocoes_sugestoes (
-            produto_id,
-            motivo,
-            dias_para_vencer,
-            estoque_atual,
-            preco_atual,
-            preco_sugerido,
-            desconto_percentual,
-            ativo
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-        `, [p.id, 'vencimento_proximo', diasParaVencer, prod.estoque_atual, prod.preco_venda, preco_sugerido, desconto_percentual], (insertErr) => {
-          if (!insertErr) inseridas++;
+        return res.json({
+          message: mensagem,
+          total: 0,
+          sugestoes: []
+        });
+      }
 
-          // Se é o último produto, enviar resposta
-          if (processados === totalProdutos) {
-            res.json({ 
-              message: `Sugestões geradas com sucesso. Total: ${inseridas}`,
-              total: inseridas 
-            });
-          }
+      inserirSugestoesPromocoes(sugestoes, 0, 0, (inseridas) => {
+        res.json({
+          message: `Sugestões geradas com sucesso. Total: ${inseridas}`,
+          total: inseridas,
+          sugestoes
         });
       });
+    });
+  });
+  });
+});
+
+router.get('/promocoes/produtos-elegiveis', (req, res) => {
+  let query = `
+    SELECT
+      p.id,
+      p.nome,
+      p.codigo,
+      p.estoque_atual,
+      p.controlar_validade,
+      p.data_validade,
+      p.preco_venda,
+      ${SQL_ULTIMA_VENDA_PRODUTO} AS ultima_venda
+    FROM produtos p
+    WHERE
+      __FILTRO_ATIVO__
+      p.estoque_atual > 0
+  `;
+
+  produtosTemColuna('ativo', (colErr, temColunaAtivo) => {
+    if (colErr) {
+      console.error('Erro ao verificar coluna ativo em produtos:', colErr.message);
+      return res.status(500).json({ error: colErr.message });
+    }
+
+    query = query.replace(
+      '__FILTRO_ATIVO__',
+      temColunaAtivo ? 'COALESCE(p.ativo, 1) = 1 AND' : ''
+    );
+
+    db.all(query, [], (err, produtos) => {
+      if (err) {
+        console.error('Erro ao buscar produtos elegíveis:', err.message);
+        return res.status(500).json({ error: err.message });
+      }
+
+      const elegiveis = [];
+
+      for (const produto of produtos || []) {
+        const sugestao = classificarProduto(produto);
+        if (!sugestao) continue;
+
+        elegiveis.push({
+          id: produto.id,
+          nome: produto.nome,
+          codigo: produto.codigo,
+          estoque_atual: produto.estoque_atual,
+          preco_venda: produto.preco_venda,
+          controlar_validade: produto.controlar_validade,
+          data_validade: produto.data_validade,
+          ultima_venda: produto.ultima_venda,
+          dias_sem_venda: calcularDiasSemVenda(produto.ultima_venda),
+          dias_para_vencer: produtoControlaValidade(produto)
+            ? calcularDiasParaVencer(produto.data_validade, true)
+            : null,
+          tipo: sugestao.tipo,
+          motivo: sugestao.texto,
+          prioridade: sugestao.prioridade
+        });
+      }
+
+      elegiveis.sort((a, b) => b.prioridade - a.prioridade);
+      res.json(elegiveis);
     });
   });
 });
@@ -754,11 +1205,23 @@ router.get('/:id', (req, res) => {
     if (!row) {
       return res.status(404).json({ error: 'Produto não encontrado' });
     }
-    res.json({
-      ...row,
-      categoria: row.categoria_nome || '',
-      subcategoria: row.subcategoria_nome || ''
-    });
+
+    db.all(
+      `SELECT * FROM produto_atacado WHERE produto_id = ? ORDER BY quantidade_minima ASC`,
+      [req.params.id],
+      (faixaErr, faixas) => {
+        if (faixaErr) {
+          return res.status(500).json({ error: faixaErr.message });
+        }
+
+        res.json({
+          ...row,
+          categoria: row.categoria_nome || '',
+          subcategoria: row.subcategoria_nome || '',
+          atacado_faixas: faixas || []
+        });
+      }
+    );
   });
 });
 
@@ -771,7 +1234,8 @@ router.post('/', (req, res) => {
     aliquota_icms, aliquota_pis, aliquota_cofins,
     data_validade, lote, dias_alerta_validade, controlar_validade,
     vendido_por_peso, peso_total_compra, valor_total_compra, custo_por_kg,
-    venda_atacado
+    venda_atacado,
+    atacado_faixas
   } = req.body;
 
   db.run(`
@@ -808,37 +1272,36 @@ router.post('/', (req, res) => {
         res.status(500).json({ error: err.message });
         return;
       }
-      // Buscar o produto recém-criado já com nomes de categoria e subcategoria
-      db.get(`
-        SELECT 
-          p.*, 
-          c.nome AS categoria_nome, 
-          s.nome AS subcategoria_nome
-        FROM produtos p
-        LEFT JOIN categorias c ON c.id = p.categoria_id
-        LEFT JOIN subcategorias s ON s.id = p.subcategoria_id
-        WHERE p.id = ?
-      `, [this.lastID], (err2, row) => {
-        if (err2) {
-          res.status(500).json({ error: err2.message });
-          return;
+
+      const produtoId = this.lastID;
+
+      inserirFaixasAtacadoProduto(produtoId, atacado_faixas, (faixaErr) => {
+        if (faixaErr) {
+          console.error('Erro ao salvar faixas de atacado do produto:', faixaErr.message);
+          return res.status(500).json({ error: 'Produto criado, mas houve erro ao salvar faixas de atacado.' });
         }
-        res.json({
-          ...row,
-          categoria: row.categoria_nome || '',
-          subcategoria: row.subcategoria_nome || '',
-          message: 'Produto criado com sucesso'
+
+        buscarProdutoCompleto(produtoId, (err2, row) => {
+          if (err2 || !row) {
+            return res.status(500).json({ error: err2?.message || 'Erro ao buscar produto criado' });
+          }
+
+          res.json({
+            ...row,
+            message: 'Produto criado com sucesso'
+          });
+
+          gravarAuditoria({
+            usuario_id: req.user?.id || null,
+            usuario_nome: req.user?.username || req.user?.nome || null,
+            modulo: 'produtos',
+            acao: 'criar_produto',
+            referencia_tipo: 'produto',
+            referencia_id: produtoId,
+            detalhes: { nome, codigo, categoria_id, estoque_atual, preco_venda, faixas_atacado: (atacado_faixas || []).length },
+            ip_requisicao: req.ip || null
+          }).catch((auditErr) => console.error('Erro ao gravar auditoria de criação de produto:', auditErr));
         });
-        gravarAuditoria({
-          usuario_id: req.user?.id || null,
-          usuario_nome: req.user?.username || req.user?.nome || null,
-          modulo: 'produtos',
-          acao: 'criar_produto',
-          referencia_tipo: 'produto',
-          referencia_id: this.lastID,
-          detalhes: { nome, codigo, categoria_id, estoque_atual, preco_venda },
-          ip_requisicao: req.ip || null
-        }).catch((auditErr) => console.error('Erro ao gravar auditoria de criação de produto:', auditErr));
       });
     });
 });
@@ -846,7 +1309,7 @@ router.post('/', (req, res) => {
 // Atualizar produto
 router.put('/:id', (req, res) => {
   const { id } = req.params;
-  const updates = req.body;
+  const { atacado_faixas, ...bodyUpdates } = req.body;
 
   db.get('SELECT * FROM produtos WHERE id = ?', [id], (err, old) => {
     if (err) {
@@ -861,49 +1324,31 @@ router.put('/:id', (req, res) => {
     const fields = [];
     const values = [];
 
-    Object.keys(updates).forEach(key => {
-      if (key !== 'id' && key !== 'created_at') {
+    Object.keys(bodyUpdates).forEach(key => {
+      if (!CAMPOS_PRODUTO_IGNORADOS.has(key)) {
         fields.push(`${key} = ?`);
-        values.push(updates[key]);
+        values.push(bodyUpdates[key]);
       }
     });
 
+    if (fields.length === 0 && !Array.isArray(atacado_faixas)) {
+      return res.status(400).json({ error: 'Nenhum campo válido para atualizar.' });
+    }
+
     values.push(id);
 
-    db.run(`
-      UPDATE produtos
-      SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `, values, function(updateErr) {
-      if (updateErr) {
-        res.status(500).json({ error: updateErr.message });
-        return;
-      }
-
-      const novoPc = updates.preco_compra !== undefined ? updates.preco_compra : old.preco_compra;
-      const novoPv = updates.preco_venda !== undefined ? updates.preco_venda : old.preco_venda;
+    const finalizarAtualizacao = () => {
+      const novoPc = bodyUpdates.preco_compra !== undefined ? bodyUpdates.preco_compra : old.preco_compra;
+      const novoPv = bodyUpdates.preco_venda !== undefined ? bodyUpdates.preco_venda : old.preco_venda;
       const mudouCompra = Number(novoPc) !== Number(old.preco_compra);
       const mudouVenda = Number(novoPv) !== Number(old.preco_venda);
 
       function responderComProdutoAtualizado() {
-        db.get(`
-          SELECT 
-            p.*,
-            c.nome AS categoria_nome,
-            s.nome AS subcategoria_nome
-          FROM produtos p
-          LEFT JOIN categorias c ON c.id = p.categoria_id
-          LEFT JOIN subcategorias s ON s.id = p.subcategoria_id
-          WHERE p.id = ?
-        `, [id], (err2, row) => {
-          if (err2) {
-            return res.status(500).json({ error: err2.message });
+        buscarProdutoCompleto(id, (err2, row) => {
+          if (err2 || !row) {
+            return res.status(500).json({ error: err2?.message || 'Erro ao buscar produto atualizado' });
           }
-          res.json({
-            ...row,
-            categoria: row.categoria_nome || '',
-            subcategoria: row.subcategoria_nome || ''
-          });
+          res.json(row);
         });
       }
 
@@ -921,6 +1366,7 @@ router.put('/:id', (req, res) => {
       } else {
         responderComProdutoAtualizado();
       }
+
       gravarAuditoria({
         usuario_id: req.user?.id || null,
         usuario_nome: req.user?.username || req.user?.nome || null,
@@ -928,9 +1374,49 @@ router.put('/:id', (req, res) => {
         acao: 'atualizar_produto',
         referencia_tipo: 'produto',
         referencia_id: id,
-        detalhes: { antes: old, depois: updates },
+        detalhes: { antes: old, depois: bodyUpdates },
         ip_requisicao: req.ip || null
       }).catch((auditErr) => console.error('Erro ao gravar auditoria de atualização de produto:', auditErr));
+    };
+
+    const salvarFaixasTemporarias = (callback) => {
+      if (!Array.isArray(atacado_faixas) || atacado_faixas.length === 0) {
+        return callback(null);
+      }
+
+      db.run(`DELETE FROM produto_atacado WHERE produto_id = ?`, [id], (deleteErr) => {
+        if (deleteErr) {
+          return callback(deleteErr);
+        }
+        inserirFaixasAtacadoProduto(id, atacado_faixas, callback);
+      });
+    };
+
+    if (fields.length === 0) {
+      return salvarFaixasTemporarias((faixaErr) => {
+        if (faixaErr) {
+          return res.status(500).json({ error: faixaErr.message });
+        }
+        finalizarAtualizacao();
+      });
+    }
+
+    db.run(`
+      UPDATE produtos
+      SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, values, function(updateErr) {
+      if (updateErr) {
+        res.status(500).json({ error: updateErr.message });
+        return;
+      }
+
+      salvarFaixasTemporarias((faixaErr) => {
+        if (faixaErr) {
+          return res.status(500).json({ error: faixaErr.message });
+        }
+        finalizarAtualizacao();
+      });
     });
   });
 });

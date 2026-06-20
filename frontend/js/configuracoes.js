@@ -7,6 +7,15 @@ function isAdminUser() {
     }
 }
 
+function isSuperAdminUser() {
+    try {
+        const u = JSON.parse(localStorage.getItem('user') || '{}');
+        return String(u.perfil || '').toUpperCase() === 'SUPER_ADMIN';
+    } catch (e) {
+        return false;
+    }
+}
+
 function getUsernameLogado() {
     try {
         return JSON.parse(localStorage.getItem('user') || '{}').username || '';
@@ -147,16 +156,6 @@ function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
         'fiscal_emitente_bairro'
     ]);
 
-    const backupConfigKeys = new Set([
-        'backup_google_enabled',
-        'backup_google_frequency',
-        'backup_google_client_id',
-        'backup_google_client_secret',
-        'backup_google_redirect_uris',
-        'backup_google_refresh_token'
-    ]);
-
-    // Chaves internas do Pix — configuradas apenas pelo modal "Configurar Pix Automático"
     const pixConfigKeys = new Set([
         'pix_automatico_ativo',
         'pix_provedor_ativo',
@@ -165,7 +164,6 @@ function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
 
     configuracoes = configuracoes.filter(config =>
         !fiscalConfigKeys.has(config.chave) &&
-        !backupConfigKeys.has(config.chave) &&
         !pixConfigKeys.has(config.chave) &&
         config.chave !== 'endereco'
     );
@@ -281,33 +279,6 @@ function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
 
         <div class="card mt-3">
             <div class="card-header">
-                <i class="fas fa-qrcode"></i> Pix Automático
-            </div>
-            <div class="card-body">
-                <div class="form-check form-switch mb-3">
-                    <input
-                        class="form-check-input"
-                        type="checkbox"
-                        id="togglePixAutomatico"
-                        onchange="alterarPixAutomatico()"
-                    >
-                    <label class="form-check-label fw-bold" for="togglePixAutomatico">
-                        Ativar automação bancária Pix
-                    </label>
-                </div>
-                <small class="text-muted d-block mb-3">
-                    Quando ativado, o sistema gera QR Code Pix automático e confirma o pagamento sozinho.
-                </small>
-                <div id="containerBotaoPixAutomatico" style="display:none;">
-                    <button class="btn btn-success" onclick="abrirModalPixAutomatico()">
-                        <i class="fas fa-qrcode"></i> Configurar Pix Automático
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <div class="card mt-3">
-            <div class="card-header">
                 <i class="fas fa-image"></i> Personalização da Tela de Login
             </div>
             <div class="card-body">
@@ -362,13 +333,7 @@ function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
                 <i class="fas fa-database"></i> Backup e Manutenção
             </div>
             <div class="card-body">
-                <button class="btn btn-secondary" onclick="showBackupConfigModal()">
-                    <i class="fas fa-cloud-upload-alt"></i> Configurar Backup Google Drive
-                </button>
-                <button class="btn btn-outline-primary ms-2" onclick="backupManual()">
-                    <i class="fas fa-play"></i> Backup Google Agora
-                </button>
-                <button id="btnBackupManual" class="btn btn-success ms-2">
+                <button id="btnBackupManual" class="btn btn-success">
                     <i class="fas fa-database"></i> Backup Manual DB
                 </button>
                 <button id="btnEscolherPasta" class="btn btn-info ms-2">
@@ -402,8 +367,190 @@ function renderConfiguracoes(configuracoes, usuarios, usuariosInativos) {
     carregarPastaBackup();
     setupEscolherPastaListener();
     carregarImpressoraCupom();
-    carregarStatusPixAutomatico();
 }
+
+async function carregarConfiguracaoRede() {
+    try {
+        const response = await fetch(`${API_URL}/configuracao-rede`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Falha ao carregar configuração de rede: ${response.status}`);
+        }
+
+        const config = await response.json();
+        window.configuracaoRedeAtual = config;
+        $('#redeConfigCardContainer').html(renderConfiguracaoRedeCard(config));
+        aplicarEstadoConfiguracaoRede();
+    } catch (err) {
+        console.error(err);
+        $('#redeConfigCardContainer').html(`
+            <div class="alert alert-danger">
+                Não foi possível carregar a configuração de rede. Tente novamente mais tarde.
+            </div>
+        `);
+    }
+}
+
+function renderConfiguracaoRedeCard(config = {}) {
+    const modo = config.modo === 'cliente' ? 'cliente' : 'local';
+    const ipServidor = config.ipServidor || '';
+    const porta = Number.isInteger(config.porta) && config.porta > 0 ? config.porta : 3001;
+
+    return `
+        <form id="redeConfigForm" onsubmit="return false;">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Modo de operação</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="modoRede" id="modoLocal" value="local" ${modo === 'local' ? 'checked' : ''}>
+                    <label class="form-check-label" for="modoLocal">Local (servidor local integrado)</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="modoRede" id="modoCliente" value="cliente" ${modo === 'cliente' ? 'checked' : ''}>
+                    <label class="form-check-label" for="modoCliente">Cliente (terminal conectado a servidor remoto)</label>
+                </div>
+            </div>
+
+            <div id="containerClienteConfig" class="border rounded p-3 mb-3" style="display: ${modo === 'cliente' ? 'block' : 'none'};">
+                <div class="mb-3">
+                    <label for="redeIpServidor" class="form-label fw-bold">IP do servidor remoto</label>
+                    <input type="text" id="redeIpServidor" class="form-control" value="${escapeHtml(ipServidor)}" placeholder="Ex.: 192.168.1.3">
+                </div>
+                <div class="mb-3">
+                    <label for="redePorta" class="form-label fw-bold">Porta do servidor</label>
+                    <input type="number" id="redePorta" class="form-control" value="${escapeHtml(String(porta))}" min="1" max="65535">
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <button type="button" class="btn btn-outline-primary me-2" id="btnTestarConexaoServidor" onclick="testarConexaoServidor()">
+                    <i class="fas fa-link"></i> Testar Conexão
+                </button>
+                <button type="button" class="btn btn-success" onclick="salvarConfiguracaoRede()">
+                    <i class="fas fa-save"></i> Salvar Configuração
+                </button>
+            </div>
+            <div id="redeConfigStatus" class="p-3 rounded bg-light text-muted">
+                ${modo === 'cliente' ? 'Modo cliente selecionado. Informe o servidor remoto e teste a conexão.' : 'Modo local selecionado. O sistema usará o backend local no próximo início.'}
+            </div>
+        </form>
+    `;
+}
+
+function aplicarEstadoConfiguracaoRede() {
+    const modo = $('input[name="modoRede"]:checked').val() || 'local';
+    const isCliente = modo === 'cliente';
+    $('#containerClienteConfig').toggle(isCliente);
+    $('#btnTestarConexaoServidor').prop('disabled', !isCliente);
+}
+
+function fetchComTimeout(url, timeout = 15000) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            reject(new Error('Timeout de conexão atingido')); 
+        }, timeout);
+
+        fetch(url, {
+            method: 'GET',
+            cache: 'no-cache',
+            credentials: 'same-origin'
+        }).then((response) => {
+            clearTimeout(timer);
+            resolve(response);
+        }).catch((error) => {
+            clearTimeout(timer);
+            reject(error);
+        });
+    });
+}
+
+async function testarConexaoServidor() {
+    const modo = $('input[name="modoRede"]:checked').val() || 'local';
+    const porta = Number($('#redePorta').val()) || 3001;
+    const ipServidor = $('#redeIpServidor').val().trim();
+
+    if (modo === 'cliente' && !ipServidor) {
+        showNotification('Informe o IP do servidor remoto.', 'warning');
+        return;
+    }
+
+    const urls = modo === 'cliente'
+        ? [
+            `http://${ipServidor}:${porta}/ping`,
+            `http://${ipServidor}:${porta}/api/ping`
+        ]
+        : [`${window.location.origin}/api/ping`];
+
+    const statusBox = $('#redeConfigStatus');
+    statusBox.removeClass('bg-light bg-success bg-warning bg-danger').addClass('bg-light').text('Testando conexão...');
+
+    let lastError = null;
+    for (const url of urls) {
+        try {
+            const response = await fetchComTimeout(url, 15000);
+            if (!response.ok) {
+                lastError = new Error(`Resposta inválida do servidor: ${response.status}`);
+                continue;
+            }
+            statusBox.removeClass('bg-light bg-warning bg-danger').addClass('bg-success text-white').text(`Conexão OK com ${url}`);
+            showNotification('Conexão com o servidor testada com sucesso.', 'success');
+            return;
+        } catch (err) {
+            lastError = err;
+        }
+    }
+
+    const mensagem = lastError ? lastError.message : 'Falha desconhecida';
+    statusBox.removeClass('bg-light bg-warning bg-success').addClass('bg-danger text-white').text(`Falha ao conectar: ${mensagem}`);
+    showNotification(`Falha ao conectar no servidor: ${mensagem}`, 'danger');
+}
+
+async function salvarConfiguracaoRede() {
+    const modo = $('input[name="modoRede"]:checked').val() || 'local';
+    const porta = Number($('#redePorta').val()) || 3001;
+    const ipServidor = $('#redeIpServidor').val().trim();
+
+    if (modo === 'cliente' && !ipServidor) {
+        showNotification('Informe o IP do servidor remoto antes de salvar.', 'warning');
+        return;
+    }
+
+    const payload = {
+        modo,
+        porta,
+        ipServidor: modo === 'cliente' ? ipServidor : ''
+    };
+
+    try {
+        const response = await fetch(`${API_URL}/configuracao-rede`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+
+        const result = await response.json();
+        window.configuracaoRedeAtual = result.config;
+        $('#redeConfigStatus').removeClass('bg-light bg-warning bg-danger').addClass('bg-success text-white').text('Configuração de rede salva. Reinicie o sistema para aplicar o modo selecionado.');
+        showNotification('Configuração de rede salva com sucesso.', 'success');
+    } catch (err) {
+        console.error(err);
+        $('#redeConfigStatus').removeClass('bg-light bg-warning bg-success').addClass('bg-danger text-white').text(`Erro ao salvar configuração: ${err.message}`);
+        showNotification(`Erro ao salvar configuração de rede: ${err.message}`, 'danger');
+    }
+}
+
+$(document).on('change', 'input[name="modoRede"]', aplicarEstadoConfiguracaoRede);
 
 // --- PIX AUTOMÁTICO ---
 let catalogoPixAutomatico = {};
@@ -603,25 +750,37 @@ function escapeHtml(s) {
     return div.innerHTML;
 }
 
-function showModalNovoUsuario(usuario = null) {
-    const permissoesDisponiveis = [
-        ['pdv', 'PDV'],
-        ['vendas', 'Vendas'],
-        ['produtos', 'Produtos'],
-        ['clientes', 'Clientes'],
-        ['compras', 'Compras'],
-        ['fornecedores', 'Fornecedores'],
-        ['financeiro', 'Financeiro'],
-        ['caixa', 'Caixa'],
-        ['fiscal', 'Fiscal'],
-        ['configuracoes', 'Configurações'],
-        ['usuarios', 'Usuários'],
-        ['relatorios', 'Relatórios'],
-        ['categorias', 'Categorias']
-    ];
-
+async function showModalNovoUsuario(usuario = null) {
     const editando = !!usuario;
     const permissoesUsuario = usuario?.permissoes || [];
+
+    // Tentar obter lista de permissões do backend; em falha, usar fallback
+    let permissoesLista = null;
+    try {
+        const resp = await fetch(`${API_URL}/auth/permissoes-disponiveis`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+        if (resp.ok) {
+            const data = await resp.json();
+            // data é esperado como array de strings
+            permissoesLista = Array.isArray(data) ? data : null;
+        }
+    } catch (e) {
+        console.warn('Não foi possível obter permissões do servidor, usando fallback.');
+    }
+
+    const labelMap = {
+        pdv: 'PDV', vendas: 'Vendas', produtos: 'Produtos', clientes: 'Clientes', compras: 'Compras',
+        fornecedores: 'Fornecedores', financeiro: 'Financeiro', caixa: 'Caixa', fiscal: 'Fiscal',
+        configuracoes: 'Configurações', usuarios: 'Usuários', relatorios: 'Relatórios', categorias: 'Categorias',
+        auditoria: 'Auditoria', gerenciar_faixa_atacado: 'Gerenciar Faixa Atacado'
+    };
+
+    const fallback = Object.entries(labelMap).map(([k, v]) => [k, v]);
+
+    const permissoesDisponiveis = (permissoesLista || []).length
+        ? permissoesLista.map(p => [p, labelMap[p] || (p.charAt(0).toUpperCase() + p.slice(1))])
+        : fallback;
 
     const modalHtml = `
         <div class="modal fade" id="novoUsuarioModal" tabindex="-1">
@@ -1119,6 +1278,8 @@ async function saveConfiguracoes() {
         });
     });
     
+    console.log('Configurações para salvar:', configs);
+    
     let promises = [];
     
     configs.forEach(config => {
@@ -1132,7 +1293,8 @@ async function saveConfiguracoes() {
     });
     
     Promise.all(promises)
-        .then(() => {
+        .then((responses) => {
+            console.log('Respostas do servidor:', responses);
             showNotification('Configurações salvas com sucesso!');
             // Recarrega a logo na sidebar
             if (typeof carregarLogoSidebar === 'function') {
@@ -1140,8 +1302,9 @@ async function saveConfiguracoes() {
             }
             loadConfiguracoes();
         })
-        .catch(() => {
-            showNotification('Erro ao salvar configurações!', 'danger');
+        .catch((error) => {
+            console.error('Erro ao salvar configurações:', error);
+            showNotification('Erro ao salvar configurações: ' + (error.responseJSON?.error || error.message || 'Erro desconhecido'), 'danger');
         });
 }
 
@@ -1621,3 +1784,265 @@ async function alterarPixAutomatico() {
         carregarStatusPixAutomatico();
     }
 }
+
+// Advanced configurations — tela exclusiva do SUPER_ADMIN
+function loadConfiguracoesAvancadas() {
+    if (!isSuperAdminUser()) {
+        $('#page-content').html('<div class="alert alert-danger">Acesso negado. Apenas Super Administrador.</div>');
+        return;
+    }
+
+    $.ajax({
+        url: `${API_URL}/configuracoes-avancadas`,
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        success: function(config) {
+            renderConfiguracoesAvancadas(config || {});
+        },
+        error: function(xhr) {
+            const msg = xhr.responseJSON?.error || 'Erro ao carregar configurações avançadas.';
+            $('#page-content').html(`<div class="alert alert-danger">${escapeHtml(msg)}</div>`);
+        }
+    });
+}
+
+function renderConfiguracoesAvancadas(config) {
+    const tipo = String(config.tipoImplantacao || 'ERP_SEM_FISCAL').toUpperCase();
+    const modo = String(config.modoOperacao || 'LOCAL').toUpperCase();
+    const ipServidor = config.ipServidor || '';
+    const porta = Number(config.porta) > 0 ? Number(config.porta) : 3001;
+    const clienteServidorDisponivel = tipo === 'ERP_MULTICAIXA';
+
+    const html = `
+        <div class="card">
+            <div class="card-header text-center">
+                <h5 class="mb-0"><i class="fas fa-tools"></i> CONFIGURAÇÕES AVANÇADAS</h5>
+            </div>
+            <div class="card-body">
+                <div class="config-cards-grid mb-4">
+                    <div class="config-card" id="btnConfiguracaoTEF">
+                        <i class="fas fa-credit-card"></i>
+                        <h3>Integração TEF e PinPad</h3>
+                        <p>Configuração de adquirentes, APIs e PinPads.</p>
+                    </div>
+                </div>
+
+                <form id="formConfigAvancadas">
+                    <h6 class="fw-bold text-uppercase">Tipo de Implantação</h6>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="tipoImplantacao" id="tipoSemFiscal" value="ERP_SEM_FISCAL" ${tipo === 'ERP_SEM_FISCAL' ? 'checked' : ''}>
+                            <label class="form-check-label" for="tipoSemFiscal">ERP Sem Fiscal</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="tipoImplantacao" id="tipoFiscal" value="ERP_FISCAL" ${tipo === 'ERP_FISCAL' ? 'checked' : ''}>
+                            <label class="form-check-label" for="tipoFiscal">ERP Fiscal</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="tipoImplantacao" id="tipoMulticaixa" value="ERP_MULTICAIXA" ${tipo === 'ERP_MULTICAIXA' ? 'checked' : ''}>
+                            <label class="form-check-label" for="tipoMulticaixa">ERP Multi-Caixa</label>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <h6 class="fw-bold text-uppercase">Configuração de Rede</h6>
+                    <p class="text-muted small mb-2">Modo de Operação</p>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="modoOperacao" id="modoLocal" value="LOCAL" ${modo === 'LOCAL' ? 'checked' : ''}>
+                            <label class="form-check-label" for="modoLocal">Banco Local</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="modoOperacao" id="modoClienteServidor" value="CLIENTE_SERVIDOR" ${modo === 'CLIENTE_SERVIDOR' ? 'checked' : ''} ${clienteServidorDisponivel ? '' : 'disabled'}>
+                            <label class="form-check-label ${clienteServidorDisponivel ? '' : 'text-muted'}" for="modoClienteServidor">Cliente/Servidor</label>
+                        </div>
+                        <small class="text-muted d-block">Cliente/Servidor disponível apenas para ERP Multi-Caixa.</small>
+                    </div>
+
+                    <div id="containerIpServidor" class="mb-3">
+                        <label for="cfgIpServidor" class="form-label fw-bold">IP do Servidor</label>
+                        <input type="text" class="form-control" id="cfgIpServidor" value="${escapeHtml(ipServidor)}" placeholder="Ex.: 192.168.0.100">
+                    </div>
+                    <div class="mb-3">
+                        <label for="cfgPorta" class="form-label fw-bold">Porta</label>
+                        <input type="number" class="form-control" id="cfgPorta" value="${escapeHtml(String(porta))}" min="1" max="65535">
+                    </div>
+
+                    <hr>
+
+                    <h6 class="fw-bold text-uppercase"><i class="fas fa-qrcode"></i> Pix Automático</h6>
+                    <div class="mb-4">
+                        <div class="form-check form-switch mb-3">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                id="togglePixAutomatico"
+                                onchange="alterarPixAutomatico()"
+                            >
+                            <label class="form-check-label fw-bold" for="togglePixAutomatico">
+                                Ativar automação bancária Pix
+                            </label>
+                        </div>
+                        <small class="text-muted d-block mb-3">
+                            Quando ativado, o sistema gera QR Code Pix automático e confirma o pagamento sozinho.
+                        </small>
+                        <div id="containerBotaoPixAutomatico" style="display:none;">
+                            <button type="button" class="btn btn-success btn-sm" onclick="abrirModalPixAutomatico()">
+                                <i class="fas fa-qrcode"></i> Configurar Pix Automático
+                            </button>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div id="secaoConfigFiscalAvancadas">
+                        <h6 class="fw-bold text-uppercase"><i class="fas fa-receipt"></i> Configuração Fiscal</h6>
+                        <p class="text-muted small" id="msgConfigFiscalIndisponivel" style="display:none;">
+                            Selecione ERP Fiscal ou ERP Multi-Caixa para configurar os parâmetros fiscais.
+                        </p>
+                        <div id="fiscal-config-form-area-avancadas">
+                            <div class="text-center py-4 text-muted">
+                                <i class="fas fa-spinner fa-spin me-2"></i> Carregando configuração fiscal...
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-primary" onclick="salvarConfiguracoesAvancadas()">
+                            <i class="fas fa-save"></i> Salvar Configurações
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="loadPage('pdv')">
+                            <i class="fas fa-times"></i> Fechar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+
+    $('#page-content').html(html);
+    aplicarEstadoFormConfigAvancadas();
+    carregarStatusPixAutomatico();
+
+    document
+        .getElementById('btnConfiguracaoTEF')
+        ?.addEventListener('click', () => {
+            abrirConfiguracaoTEF();
+        });
+}
+
+function tipoImplantacaoPermiteConfigFiscal(tipo) {
+    const t = String(tipo || '').toUpperCase();
+    return t === 'ERP_FISCAL' || t === 'ERP_MULTICAIXA';
+}
+
+function carregarConfigFiscalAvancadas() {
+    const tipo = obterTipoImplantacaoSelecionado();
+    const $secao = $('#secaoConfigFiscalAvancadas');
+    const $form = $('#fiscal-config-form-area-avancadas');
+    const $msg = $('#msgConfigFiscalIndisponivel');
+
+    if (!tipoImplantacaoPermiteConfigFiscal(tipo)) {
+        $msg.show();
+        $form.hide().empty();
+        return;
+    }
+
+    $msg.hide();
+    $form.show().html(`
+        <div class="text-center py-4 text-muted">
+            <i class="fas fa-spinner fa-spin me-2"></i> Carregando configuração fiscal...
+        </div>
+    `);
+
+    if (typeof carregarFiscalConfig === 'function') {
+        carregarFiscalConfig('#fiscal-config-form-area-avancadas');
+    }
+}
+
+function obterTipoImplantacaoSelecionado() {
+    return String($('input[name="tipoImplantacao"]:checked').val() || 'ERP_SEM_FISCAL').toUpperCase();
+}
+
+function aplicarEstadoFormConfigAvancadas() {
+    const tipo = obterTipoImplantacaoSelecionado();
+    const modo = String($('input[name="modoOperacao"]:checked').val() || 'LOCAL').toUpperCase();
+    const clienteDisponivel = tipo === 'ERP_MULTICAIXA';
+
+    $('#modoClienteServidor').prop('disabled', !clienteDisponivel);
+
+    if (!clienteDisponivel && modo === 'CLIENTE_SERVIDOR') {
+        $('#modoLocal').prop('checked', true);
+    }
+
+    const modoAtual = String($('input[name="modoOperacao"]:checked').val() || 'LOCAL').toUpperCase();
+    const exigeIp = modoAtual === 'CLIENTE_SERVIDOR';
+    $('#containerIpServidor').toggle(exigeIp);
+    $('#cfgIpServidor').prop('required', exigeIp);
+
+    carregarConfigFiscalAvancadas();
+}
+
+async function salvarConfiguracoesAvancadas() {
+    if (!isSuperAdminUser()) {
+        showNotification('Acesso negado.', 'danger');
+        return;
+    }
+
+    const tipoImplantacao = obterTipoImplantacaoSelecionado();
+    const modoOperacao = String($('input[name="modoOperacao"]:checked').val() || 'LOCAL').toUpperCase();
+    const ipServidor = $('#cfgIpServidor').val().trim();
+    const porta = Number($('#cfgPorta').val()) || 3001;
+
+    if (modoOperacao === 'CLIENTE_SERVIDOR' && !ipServidor) {
+        showNotification('Informe o IP do servidor para o modo Cliente/Servidor.', 'warning');
+        return;
+    }
+
+    if (modoOperacao === 'CLIENTE_SERVIDOR' && (!Number.isInteger(porta) || porta <= 0)) {
+        showNotification('Informe uma porta válida.', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/configuracoes-avancadas`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                tipoImplantacao,
+                modoOperacao,
+                ipServidor: modoOperacao === 'CLIENTE_SERVIDOR' ? ipServidor : '',
+                porta
+            })
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            const detalhes = Array.isArray(data.details) ? data.details.join(' ') : (data.error || 'Erro ao salvar.');
+            throw new Error(detalhes);
+        }
+
+        showNotification(data.message || 'Configurações salvas com sucesso.', 'success');
+
+        if (typeof carregarConfiguracaoImplantacao === 'function') {
+            await carregarConfiguracaoImplantacao();
+        }
+
+        renderConfiguracoesAvancadas(data.config || {});
+        carregarStatusPixAutomatico();
+    } catch (err) {
+        console.error(err);
+        showNotification(err.message || 'Erro ao salvar configurações.', 'danger');
+    }
+}
+
+$(document).on('change', 'input[name="tipoImplantacao"], input[name="modoOperacao"]', aplicarEstadoFormConfigAvancadas);

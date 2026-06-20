@@ -5,6 +5,11 @@ const bcrypt = require('bcryptjs');
 const { gravarAuditoria } = require('../services/auditoria');
 const db = require('../database');
 
+function parsePositiveInteger(value) {
+  const num = Number(value);
+  return Number.isInteger(num) && num > 0 ? num : null;
+}
+
 const JWT_SECRET = 'mercantil_do_nando_secret_key_2024';
 
 const PERMISSOES_DISPONIVEIS = [
@@ -142,13 +147,19 @@ router.post('/supervisor/authorize', (req, res) => {
         return res.status(403).json({ error: 'Apenas supervisor pode autorizar este desconto.' });
       }
 
+      const terminalId = parsePositiveInteger(req.body?.terminal_id);
+      const caixaSessaoId = parsePositiveInteger(req.body?.caixa_sessao_id);
+
       const token = jwt.sign(
         {
           id: usuario.id,
+          usuario_id: usuario.id,
           username: usuario.username,
           nome: usuario.nome || usuario.username,
           role: usuario.role,
-          perfil: usuario.perfil || 'USUARIO'
+          perfil: usuario.perfil || 'USUARIO',
+          terminal_id: terminalId,
+          caixa_sessao_id: caixaSessaoId
         },
         JWT_SECRET,
         { expiresIn: '15m' }
@@ -158,10 +169,13 @@ router.post('/supervisor/authorize', (req, res) => {
         token,
         user: {
           id: usuario.id,
+          usuario_id: usuario.id,
           username: usuario.username,
           nome: usuario.nome || usuario.username,
           role: usuario.role,
-          perfil: usuario.perfil || 'USUARIO'
+          perfil: usuario.perfil || 'USUARIO',
+          terminal_id: terminalId,
+          caixa_sessao_id: caixaSessaoId
         }
       });
     }
@@ -203,14 +217,20 @@ router.post('/login', (req, res) => {
           permissoes = PERMISSOES_DISPONIVEIS;
         }
 
+        const terminalId = parsePositiveInteger(req.body?.terminal_id);
+        const caixaSessaoId = parsePositiveInteger(req.body?.caixa_sessao_id);
+
         const token = jwt.sign(
           {
             id: usuario.id,
+            usuario_id: usuario.id,
             username: usuario.username,
             nome: usuario.nome || usuario.username,
             role: usuario.role,
             perfil: usuario.perfil || 'USUARIO',
-            permissoes
+            permissoes,
+            terminal_id: terminalId,
+            caixa_sessao_id: caixaSessaoId
           },
           JWT_SECRET,
           { expiresIn: '8h' }
@@ -220,11 +240,14 @@ router.post('/login', (req, res) => {
           token,
           user: {
             id: usuario.id,
+            usuario_id: usuario.id,
             username: usuario.username,
             role: usuario.role,
             perfil: usuario.perfil || 'USUARIO',
             nome: usuario.nome || usuario.username,
-            permissoes
+            permissoes,
+            terminal_id: terminalId,
+            caixa_sessao_id: caixaSessaoId
           }
         });
         gravarAuditoria({
@@ -291,19 +314,32 @@ router.get('/usuarios', verificarToken, (req, res) => {
   const filtro = filtroStatusUsuarios(req.query.status);
 
   db.all(
-    `SELECT id, username, role, COALESCE(perfil, 'USUARIO') as perfil,
-            COALESCE(pode_alterar_senhas, 0) as pode_alterar_senhas,
-            COALESCE(ativo, 1) AS ativo, created_at
-     FROM usuarios
+    `SELECT
+        u.id,
+        u.username,
+        u.role,
+        COALESCE(u.perfil, 'USUARIO') as perfil,
+        COALESCE(u.pode_alterar_senhas, 0) as pode_alterar_senhas,
+        COALESCE(u.ativo, 1) AS ativo,
+        u.created_at,
+        COALESCE(GROUP_CONCAT(up.permissao), '') AS permissoes
+     FROM usuarios u
+     LEFT JOIN usuario_permissoes up ON up.usuario_id = u.id AND up.permitido = 1
      ${filtro}
-     ORDER BY username`,
+     GROUP BY u.id
+     ORDER BY u.username`,
     [],
     (err, usuarios) => {
       if (err) {
         return res.status(500).json({ error: 'Erro ao listar usuários.' });
       }
 
-      res.json(usuarios || []);
+      const usuariosComPermissoes = (usuarios || []).map(u => ({
+        ...u,
+        permissoes: u.permissoes ? u.permissoes.split(',') : []
+      }));
+
+      res.json(usuariosComPermissoes);
     }
   );
 });
@@ -727,8 +763,13 @@ function salvarPermissoes(usuarioId, permissoes, callback) {
 function verificarPermissaoEspecifica(nomeDaPermissao) {
   return (req, res, next) => {
     verificarToken(req, res, () => {
-      // Admin e supervisor sempre têm acesso
-      if (req.user?.role === 'admin' || req.user?.role === 'supervisor') {
+      // Admin, supervisor e perfis administrativos sempre têm acesso
+      const perfil = String(req.user?.perfil || '').trim().toUpperCase();
+      if (
+        req.user?.role === 'admin' ||
+        req.user?.role === 'supervisor' ||
+        ['SUPER_ADMIN', 'ADMIN'].includes(perfil)
+      ) {
         return next();
       }
 
@@ -754,6 +795,7 @@ module.exports = {
   router,
   verificarToken,
   exigirAdmin,
+  exigirSuperAdmin,
   verificarSupervisorToken,
   isSupervisorPerfil,
   PERMISSOES_DISPONIVEIS,

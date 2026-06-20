@@ -178,9 +178,24 @@ function aguardarListening(server, timeout = 15000) {
   });
 }
 
-function createWindow(serverPort) {
-  const baseUrl = `http://127.0.0.1:${serverPort}`;
+function carregarConfiguracaoServidor() {
+  try {
+    const configService = require('./backend/services/configuracaoService');
+    configService.ensureConfigFile();
+    const modoRede = configService.getModoRedeElectron();
+    console.log('CONFIG PATH:', configService.CONFIG_PATH);
+    return modoRede;
+  } catch (err) {
+    console.warn('Não foi possível ler configuracoes.json, usando configuração padrão.', err.message);
+    return {
+      modo: 'local',
+      ipServidor: '127.0.0.1',
+      porta: 3001
+    };
+  }
+}
 
+function criarMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -196,10 +211,8 @@ function createWindow(serverPort) {
     }
   });
 
-  // Tornar mainWindow global para acesso pela rota de impressão
   global.mainWindow = mainWindow;
 
-  // Interceptar window.open para criar comprovantes como janelas sempre no topo
   mainWindow.webContents.setWindowOpenHandler(() => {
     return {
       action: 'allow',
@@ -219,21 +232,18 @@ function createWindow(serverPort) {
     };
   });
 
-  // Detectar quando janela filha é criada via window.open (cupom)
   mainWindow.webContents.on('did-create-window', (childWindow) => {
     console.log('Janela filha criada via window.open');
     childWindow.setAlwaysOnTop(true);
     childWindow.focus();
   });
 
-  // Foco inicial apenas - quando janela está pronta para mostrar
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     mainWindow.focus();
   });
 
-  // IPC para forçar reflow quando solicitado pelo frontend
-  const { ipcMain } = require('electron');
+  ipcMain.removeAllListeners('forcar-reflow');
   ipcMain.on('forcar-reflow', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.executeJavaScript(`
@@ -245,7 +255,7 @@ function createWindow(serverPort) {
     }
   });
 
-  // IPC para abrir comprovante em nova janela que fica na frente
+  ipcMain.removeAllListeners('abrir-comprovante');
   ipcMain.on('abrir-comprovante', (event, html, options = {}) => {
     const { deviceName, silent = false } = options;
 
@@ -372,7 +382,7 @@ function createWindow(serverPort) {
     });
   });
 
-  // IPC para imprimir DANFE silenciosamente (sem mostrar janela)
+  ipcMain.removeHandler('imprimir-danfe-silencioso');
   ipcMain.handle('imprimir-danfe-silencioso', async (event, html, deviceName) => {
     const printWindow = new BrowserWindow({
       width: 420,
@@ -414,7 +424,7 @@ function createWindow(serverPort) {
     });
   });
 
-  // IPC para selecionar pasta de backup
+  ipcMain.removeHandler('selecionar-pasta-backup');
   ipcMain.handle('selecionar-pasta-backup', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
@@ -426,7 +436,7 @@ function createWindow(serverPort) {
     return result.filePaths[0];
   });
 
-  // IPC para listar impressoras disponíveis
+  ipcMain.removeHandler('listar-impressoras');
   ipcMain.handle('listar-impressoras', async () => {
     if (!mainWindow) return [];
     const impressoras = await mainWindow.webContents.getPrintersAsync();
@@ -438,22 +448,40 @@ function createWindow(serverPort) {
     }));
   });
 
-  esperarServidor(`${baseUrl}/ping`)
-    .then(() => {
-      return carregarJanelaComRobustez(mainWindow, `${baseUrl}/login`);
-    })
+  return mainWindow;
+}
+
+function abrirJanelaApp(url, tituloErro, mensagemErro) {
+  criarMainWindow();
+
+  return carregarJanelaComRobustez(mainWindow, url)
     .then(() => {
       mainWindow.maximize();
       mainWindow.show();
-
     })
     .catch((error) => {
       dialog.showErrorBox(
-        'Erro ao iniciar servidor',
-        `O backend do sistema não respondeu.\n\n${error.message}\n\nDB_DIR: ${process.env.DB_DIR}`
+        tituloErro,
+        mensagemErro(error)
       );
       app.quit();
     });
+}
+
+function createWindow(serverPort) {
+  return abrirJanelaApp(
+    `http://127.0.0.1:${serverPort}/login`,
+    'Erro ao iniciar servidor',
+    (error) => `O backend do sistema não respondeu.\n\n${error.message}\n\nDB_DIR: ${process.env.DB_DIR}`
+  );
+}
+
+function createWindowRemote(remoteUrl) {
+  return abrirJanelaApp(
+    `${remoteUrl}/login`,
+    'Erro ao carregar servidor remoto',
+    (error) => `Não foi possível conectar ao servidor remoto.\n\n${error.message}`
+  );
 }
 
 
@@ -478,6 +506,16 @@ app.whenReady().then(() => {
     
     process.env.FISCAL_DIR = fiscalDir;
     console.log('FISCAL_DIR definido para:', process.env.FISCAL_DIR);
+
+    const configServidor = carregarConfiguracaoServidor();
+    console.log('CONFIG SERVIDOR:', configServidor);
+
+    if (configServidor.modo === 'cliente') {
+      const urlRemota = `http://${configServidor.ipServidor}:${configServidor.porta}`;
+      console.log(`Modo CLIENTE ativado. Conectando ao servidor remoto: ${urlRemota}`);
+      createWindowRemote(urlRemota);
+      return;
+    }
 
     const portaPreferida = obterPortaServidor();
     encontrarPortaDisponivel(portaPreferida)

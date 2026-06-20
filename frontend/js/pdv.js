@@ -14,6 +14,20 @@ let terminalId = null;
 let terminalHostname = null;
 const DESCONTO_MANUAL_LIMITE = 50;
 
+function getTerminalRequestData(body = {}) {
+    if (terminalId) {
+        body.terminal_id = terminalId;
+    }
+    return body;
+}
+
+function getTerminalRequestQuery(params = {}) {
+    if (terminalId) {
+        params.terminal_id = terminalId;
+    }
+    return params;
+}
+
 function normalizarTexto(texto) {
     return String(texto || '')
         .normalize('NFD')
@@ -307,6 +321,24 @@ function montarObjetoTEF(retornoTef) {
 async function processarPagamentosMistosTEF(pagamentos) {
     const pagamentosProcessados = [];
 
+    // Verificar se TEF está habilitado
+    let tefHabilitado = false;
+    try {
+        const tefConfigResponse = await fetch(`${API_URL}/tef/configuracao`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        if (tefConfigResponse.ok) {
+            const tefConfig = await tefConfigResponse.json();
+            tefHabilitado = tefConfig.tefHabilitado === true || tefConfig.tefHabilitado === 'true' || tefConfig.tefHabilitado === '1';
+        }
+    } catch (configError) {
+        console.error('Erro ao verificar configuração TEF:', configError);
+        tefHabilitado = false;
+    }
+
     for (const pagamento of pagamentos) {
         const formaNormalizada = normalizarFormaPagamentoTEF(pagamento.forma_pagamento);
         const valorPagamento = Number(pagamento.valor || 0);
@@ -315,7 +347,7 @@ async function processarPagamentosMistosTEF(pagamentos) {
             continue;
         }
 
-        if (!formaPagamentoUsaTEF(formaNormalizada)) {
+        if (!formaPagamentoUsaTEF(formaNormalizada) || !tefHabilitado) {
             pagamentosProcessados.push(pagamento);
             continue;
         }
@@ -372,6 +404,7 @@ function verificarStatusCaixa() {
         url: `${API_URL}/caixa/aberto`,
         method: 'GET',
         cache: false,
+        data: getTerminalRequestQuery(),
         success: function(caixa) {
             caixaAberto = !!caixa;
             atualizarStatusCaixaUI();
@@ -437,6 +470,13 @@ function aplicarModoFiscalPdv() {
 }
 
 function alternarModoFiscalPdv() {
+    if (typeof implantacaoPermiteFiscal === 'function' && !implantacaoPermiteFiscal()) {
+        if (typeof showNotification === 'function') {
+            showNotification('Emissão fiscal desabilitada para o tipo de implantação configurado.', 'warning');
+        }
+        return;
+    }
+
     if (typeof alternarModoFiscalGlobal === 'function') {
         alternarModoFiscalGlobal();
         return;
@@ -1303,6 +1343,9 @@ function calcularTotal() {
     // exibe desconto atacado (informativo)
     const descontoAtacadoTotal = carrinho.reduce((acc, it) => acc + (Number(it.desconto_atacado || 0)), 0);
     $('#descontoAtacadoPdv').text(formatCurrency(descontoAtacadoTotal));
+    // exibe quantidade de itens
+    const quantidadeItens = carrinho.reduce((acc, it) => acc + Number(it.quantidade || 0), 0);
+    $('#itensPdv').text(quantidadeItens);
     $('#totalPdv').text(formatCurrency(total));
 
     calcularTrocoPDV();
@@ -1622,36 +1665,14 @@ function abrirModalDecisaoFiscal(skipPagamento = false) {
 
     const clienteId = clienteSelecionado?.id || vendaPrazoInfo?.cliente_id || Number($('#clientePrazoId').val()) || null;
 
-    // Modo fiscal ativo: não exibe opção não fiscal. Mostra apenas a emissão de NFC-e.
+    if (typeof implantacaoPermiteFiscal === 'function' && !implantacaoPermiteFiscal()) {
+        executarFinalizacaoVenda(false, null, formaPagamento);
+        return;
+    }
+
+    // Modo fiscal ativo: pular a tela de decisão e seguir direto para emissão fiscal.
     if (pdvModoFiscalAtivo()) {
-        $('#modal-container').html(`
-            <div class="modal fade" id="decisaoFiscalModal" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog modal-sm modal-dialog-centered">
-                    <div class="modal-content border-0 shadow">
-                        <div class="modal-header bg-success text-white">
-                            <h5 class="modal-title mb-0">SISTEMA FISCAL</h5>
-                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
-                        </div>
-
-                        <div class="modal-body text-center">
-                            <p class="mb-3">Esta venda será emitida como NFC-e.</p>
-
-                            <div class="d-grid gap-2">
-                                <button type="button" class="btn btn-success btn-lg" onclick="finalizarComFiscal()">
-                                    Emitir NFC-e
-                                </button>
-                            </div>
-
-                            <small class="text-muted d-block mt-3">Modo fiscal ativo pelo F12.</small>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `);
-
-        const modalElFiscal = document.getElementById('decisaoFiscalModal');
-        const modalFiscal = new bootstrap.Modal(modalElFiscal);
-        modalFiscal.show();
+        mostrarModalCpfCnpjNota();
         return;
     }
 
@@ -2009,14 +2030,12 @@ function mostrarModalCpfCnpjNota() {
 
                         <div class="d-grid gap-2 mt-3">
                             <button type="button" class="btn btn-success" id="btnConfirmarCpfNota">
-                                Emitir NFC-e
+                                Finalizar Venda
                             </button>
 
-                            ${pdvModoFiscalAtivo() ? '' : `
                             <button type="button" class="btn btn-secondary" id="btnEmitirSemCpf">
-                                Emitir sem CPF/CNPJ
+                                Finalizar sem CPF/CNPJ
                             </button>
-                            `}
                         </div>
                     </div>
                 </div>
@@ -2050,7 +2069,7 @@ function mostrarModalCpfCnpjNota() {
     $('#btnConfirmarCpfNota').off('click').on('click', function () {
         const cpfCnpj = $('#cpfCnpjNotaFiscal').val();
 
-        if (!validarCpfCnpjNota(cpfCnpj)) {
+        if (cpfCnpj && !validarCpfCnpjNota(cpfCnpj)) {
             showNotification('CPF/CNPJ inválido. Informe 11 ou 14 números.', 'warning');
             $('#cpfCnpjNotaFiscal').trigger('focus');
             return;
@@ -2063,7 +2082,8 @@ function mostrarModalCpfCnpjNota() {
         modal.hide();
 
         setTimeout(() => {
-            executarFinalizacaoVenda(true, limparCpfCnpj(cpfCnpj), formaPagamentoSelecionadaPDV);
+            const emitirFiscal = pdvModoFiscalAtivo();
+            executarFinalizacaoVenda(emitirFiscal, limparCpfCnpj(cpfCnpj), formaPagamentoSelecionadaPDV);
         }, 300);
     });
 
@@ -2075,7 +2095,8 @@ function mostrarModalCpfCnpjNota() {
         modal.hide();
 
         setTimeout(() => {
-            executarFinalizacaoVenda(true, null, formaPagamentoSelecionadaPDV);
+            const emitirFiscal = pdvModoFiscalAtivo();
+            executarFinalizacaoVenda(emitirFiscal, null, formaPagamentoSelecionadaPDV);
         }, 300);
     });
 }
@@ -2251,6 +2272,24 @@ async function executarFinalizacaoVenda(emitirFiscal = false, cpfCnpjNota = null
     });
 
     try {
+        // Verificar se TEF está habilitado antes de processar
+        let tefHabilitado = false;
+        try {
+            const tefConfigResponse = await fetch(`${API_URL}/tef/configuracao`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            if (tefConfigResponse.ok) {
+                const tefConfig = await tefConfigResponse.json();
+                tefHabilitado = tefConfig.tefHabilitado === true || tefConfig.tefHabilitado === 'true' || tefConfig.tefHabilitado === '1';
+            }
+        } catch (configError) {
+            console.error('Erro ao verificar configuração TEF:', configError);
+            tefHabilitado = false;
+        }
+
         if (ehPagamentoMisto) {
             const pagamentosComTEF = await processarPagamentosMistosTEF(pagamentosMistos);
 
@@ -2262,7 +2301,7 @@ async function executarFinalizacaoVenda(emitirFiscal = false, cpfCnpjNota = null
             if (primeiroTef && primeiroTef.tef) {
                 dados.tef = primeiroTef.tef;
             }
-        } else if (formaPagamentoUsaTEF(formaPagamentoNormalizada)) {
+        } else if (formaPagamentoUsaTEF(formaPagamentoNormalizada) && tefHabilitado) {
             const parcelasTef = formaPagamentoNormalizada.includes('credito')
                 ? (Number($('#parcelasCartao').val()) || 1)
                 : 1;
@@ -2312,6 +2351,8 @@ async function executarFinalizacaoVenda(emitirFiscal = false, cpfCnpjNota = null
     });
 
     function enviarVenda(payload) {
+        payload = getTerminalRequestData(payload);
+
         $.ajax({
             url: `${API_URL}/vendas`,
             method: 'POST',
@@ -2692,6 +2733,35 @@ async function imprimirDANFEFiscal(vendaId) {
         //     return;
         // }
 
+        // Usar API de impressão silenciosa direta
+        if (window.electronAPI?.imprimirDANFESilencioso) {
+            try {
+                // Buscar impressora configurada
+                const respImpressora = await fetch(`${API_URL}/configuracoes/impressora_cupom`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                let deviceName = null;
+                try {
+                    const impressoraData = await respImpressora.json();
+                    if (impressoraData.caminho) {
+                        deviceName = impressoraData.caminho;
+                    }
+                } catch (e) {
+                    // Se não conseguir buscar, imprimir sem deviceName
+                }
+
+                // Imprimir silenciosamente sem mostrar janela
+                await window.electronAPI.imprimirDANFESilencioso(htmlDanfe, deviceName);
+                showNotification('Cupom fiscal enviado para impressora.', 'success');
+            } catch (printError) {
+                console.error('Erro na impressão silenciosa:', printError);
+                // Fallback: abrir comprovante
+                window.electronAPI.abrirComprovante(htmlDanfe);
+            }
+            return;
+        }
+
         // Fallback para método antigo
         if (window.electronAPI?.abrirComprovante) {
             try {
@@ -2994,6 +3064,8 @@ function confirmarQuantidadeProduto(produto, callback, modal) {
     if (typeof callback === 'function') {
         callback(quantidade);
     }
+
+    $('#buscaProdutoPdv').focus();
 }
 
 function abrirTelaPagamento() {
@@ -3200,14 +3272,14 @@ function selecionarPagamentoPDV(forma) {
             if (ativo) {
                 iniciarPixAutomaticoPDV();
             } else {
-                mostrarModalDecisaoFiscal();
+                mostrarModalCpfCnpjNota();
             }
         }, 300);
     } else if (forma === 'prazo') {
         mostrarModalClientePrazo();
     } else {
         setTimeout(() => {
-            mostrarModalDecisaoFiscal();
+            mostrarModalCpfCnpjNota();
         }, 300);
     }
 }
@@ -3564,9 +3636,9 @@ function confirmarPagamentoPrazo() {
         modal.hide();
     }
 
-    // Continuar com decisão fiscal
+    // Continuar com solicitação de CPF
     setTimeout(() => {
-        mostrarModalDecisaoFiscal();
+        mostrarModalCpfCnpjNota();
     }, 300);
 }
 
@@ -3662,7 +3734,7 @@ function confirmarTroco() {
     }
 
     setTimeout(() => {
-        mostrarModalDecisaoFiscal();
+        mostrarModalCpfCnpjNota();
     }, 300);
 }
 
@@ -3672,35 +3744,8 @@ function mostrarModalDecisaoFiscal() {
         return;
     }
 
-    $('#modal-container').html(`
-        <div class="modal fade" id="decisaoFiscalModal" tabindex="-1">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content border-0 shadow-lg" style="border-radius: 18px; overflow: hidden;">
-                    <div class="modal-header bg-primary text-white">
-                        <h5 class="modal-title">Finalizar Venda</h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                    </div>
-
-                    <div class="modal-body p-4">
-                        <h5 class="mb-3">Deseja emitir NFC-e?</h5>
-
-                        <div class="d-grid gap-3">
-                            <button class="btn btn-success btn-lg" onclick="finalizarComFiscal()">
-                                Sim, emitir NFC-e
-                            </button>
-
-                            <button class="btn btn-secondary btn-lg" onclick="finalizarSemFiscal()">
-                                Não, comprovante simples
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `);
-
-    const modal = new bootstrap.Modal(document.getElementById('decisaoFiscalModal'));
-    modal.show();
+    // Modo fiscal ativo: pular a tela de decisão e seguir direto para emissão fiscal.
+    mostrarModalCpfCnpjNota();
 }
 
 // =======================================================

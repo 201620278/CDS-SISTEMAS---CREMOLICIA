@@ -122,4 +122,40 @@ function carregarCertificadoPfx(certificadoPath, senha) {
   };
 }
 
-module.exports = { carregarCertificadoPfx };
+function extrairNomeEmpresaDoCertificado(certificadoPath, senha) {
+  try {
+    const pfx = carregarCertificadoPfx(certificadoPath, senha);
+    const certPem = pfx.certPem;
+    const cert = forge.pki.certificateFromPem(certPem);
+    
+    const subject = cert.subject;
+    if (subject && subject.attributes) {
+      const cnAttribute = subject.attributes.find(attr => 
+        attr.name === 'commonName' || 
+        attr.shortName === 'CN' ||
+        attr.type === '2.5.4.3'
+      );
+      
+      if (cnAttribute && cnAttribute.value) {
+        return cnAttribute.value;
+      }
+      
+      const orgAttribute = subject.attributes.find(attr => 
+        attr.name === 'organizationName' || 
+        attr.shortName === 'O' ||
+        attr.type === '2.5.4.10'
+      );
+      
+      if (orgAttribute && orgAttribute.value) {
+        return orgAttribute.value;
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Erro ao extrair nome do certificado:', error);
+    return null;
+  }
+}
+
+module.exports = { carregarCertificadoPfx, extrairNomeEmpresaDoCertificado };

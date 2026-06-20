@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { gravarAuditoria } = require('../services/auditoria');
+const { verificarPermissaoEspecifica } = require('./auth');
 
 function obterColunasCaixas(callback) {
   db.all(`PRAGMA table_info('caixas')`, [], (err, rows) => {
@@ -47,7 +48,7 @@ function montarSqlAtualizarCaixa(cols) {
 }
 
 // GET /api/caixas — Listar caixas com filtros e busca
-router.get('/', (req, res) => {
+router.get('/', verificarPermissaoEspecifica('caixa'), (req, res) => {
   const { busca, status } = req.query;
   obterColunasCaixas((errCols, cols) => {
     if (errCols) return res.status(500).json({ error: errCols.message });
@@ -85,7 +86,7 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/caixas/:id — Buscar caixa por ID
-router.get('/:id', (req, res) => {
+router.get('/:id', verificarPermissaoEspecifica('caixa'), (req, res) => {
   const { id } = req.params;
   db.get(`
     SELECT

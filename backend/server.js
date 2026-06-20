@@ -20,7 +20,11 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 app.get('/ping', (req, res) => {
-    res.json({ ok: true });
+    res.json({ status: 'ok' });
+});
+
+app.get('/api/ping', (req, res) => {
+    res.json({ status: 'ok' });
 });
 
 app.use(express.static(path.join(__dirname, '../frontend')));
@@ -122,6 +126,7 @@ const subcategoriasRoutes = require('./rotas/subcategorias');
 const vendasRoutes = require('./rotas/vendas');
 const financeiroRoutes = require('./rotas/financeiro');
 const configuracoesRoutes = require('./rotas/configuracoes');
+const configuracaoRedeRoutes = require('./rotas/configuracao_rede');
 const fiscalRoutes = require('./rotas/fiscal');
 const fornecedoresRoutes = require('./rotas/fornecedores');
 const impressaoRoutes = require('./rotas/impressao');
@@ -135,8 +140,15 @@ const dashboardRoutes = require('./rotas/dashboard');
 const alertasRoutes = require('./rotas/alertas');
 const auditoriaRoutes = require('./rotas/auditoria');
 const licencaRoutes = require('./rotas/licenca');
+const dfeRoutes = require('./rotas/dfe');
 const licencaMiddleware = require('./middleware/licencaMiddleware');
+const configuracoesAvancadasRoutes = require('./rotas/configuracoes_avancadas');
+const { exigirRecurso } = require('./middleware/validarRecursoImplantacao');
+const configService = require('./services/configuracaoService');
 // const usuariosRoutes = require('./rotas/usuarios');
+
+configService.ensureConfigFile();
+configService.reloadGlobalConfig();
 
 app.use('/api/produtos', verificarToken, produtosRoutes);
 app.use('/api/clientes', verificarToken, clientesRoutes);
@@ -147,17 +159,20 @@ app.use('/api/vendas', verificarToken, vendasRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/financeiro', verificarToken, financeiroRoutes);
 app.use('/api/configuracoes', verificarToken, configuracoesRoutes);
-app.use('/api/fiscal', verificarToken, fiscalRoutes);
+app.use('/api/configuracao-rede', verificarToken, configuracaoRedeRoutes);
+app.use('/api/configuracoes-avancadas', verificarToken, configuracoesAvancadasRoutes);
+app.use('/api/fiscal', verificarToken, exigirRecurso('fiscal'), fiscalRoutes);
 app.use('/api/fornecedores', verificarToken, fornecedoresRoutes);
 app.use('/api/impressao', verificarToken, impressaoRoutes);
 app.use('/api/caixa', verificarToken, caixaRoutes);
-app.use('/api/caixas', verificarToken, caixasRoutes);
+app.use('/api/caixas', verificarToken, exigirRecurso('multiCaixa'), caixasRoutes);
 app.use('/api/terminais', verificarToken, terminaisRoutes);
 app.use('/api/backup', verificarToken, backupRoutes);
 app.use('/api/tef', tefRoutes);
 app.use('/api/pix', verificarToken, pixRoutes);
 app.use('/api/alertas', verificarToken, alertasRoutes);
 app.use('/api/auditoria', verificarToken, auditoriaRoutes);
+app.use('/api/dfe', verificarToken, exigirRecurso('fiscal'), dfeRoutes);
 // app.use('/api/usuarios', verificarToken, usuariosRoutes);
 
 // Rotas de licença (públicas)
@@ -195,6 +210,7 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor rodando na porta ${PORT}`);
     console.log(`Acesse: http://localhost:${PORT}/login`);
+    console.log('Configuração avançada:', configService.getRecursos());
 });
 
 server.on('error', (err) => {

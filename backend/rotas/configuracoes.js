@@ -4,7 +4,6 @@ const fs = require('fs');
 const multer = require('multer');
 const router = express.Router();
 const db = require('../database');
-const backup = require('../backup');
 
 function getWritableStoragePath() {
   if (process.platform === 'win32') {
@@ -192,29 +191,6 @@ router.post('/logo', logoUpload.single('logo'), handleMulterError, saveLogoConfi
 router.post('/upload-logo', logoUpload.single('logo'), handleMulterError, saveLogoConfig);
 router.post('/upload-login-background', loginBgUpload.single('imagem'), handleMulterError, saveLoginBackgroundConfig);
 
-router.get('/backup', (req, res) => {
-  const config = backup.loadConfigSync();
-  res.json(config);
-});
-
-router.post('/backup', (req, res) => {
-  const config = req.body;
-  backup.saveConfig(config);
-  backup.scheduleBackup(config);
-  res.json({ success: true });
-});
-
-router.post('/backup/manual', async (req, res) => {
-  const config = backup.loadConfig();
-  if (!config.enabled) return res.status(400).json({ error: 'Backup não está habilitado.' });
-  const result = await backup.uploadBackupToDrive(config.google);
-  if (result.success) {
-    res.json({ success: true, file: result.file });
-  } else {
-    res.status(500).json({ error: result.error });
-  }
-});
-
 // salvar pasta backup
 router.post('/backup-path', (req, res) => {
   const { caminho } = req.body;
@@ -326,6 +302,8 @@ router.put('/:chave', (req, res) => {
   const { chave } = req.params;
   const { valor } = req.body;
 
+  console.log(`[CONFIG] Salvando configuração: chave=${chave}, valor=${valor}`);
+
   const query = `
     INSERT INTO configuracoes (chave, valor, tipo, descricao, updated_at)
     VALUES (?, ?, 'text', '', datetime('now', 'localtime'))
@@ -336,9 +314,12 @@ router.put('/:chave', (req, res) => {
 
   db.run(query, [chave, valor], function(err) {
     if (err) {
+      console.error(`[CONFIG] Erro ao salvar configuração ${chave}:`, err);
       res.status(500).json({ error: err.message });
       return;
     }
+
+    console.log(`[CONFIG] Configuração ${chave} salva com sucesso. Changes: ${this.changes}`);
     res.json({ message: 'Configuração atualizada com sucesso' });
   });
 });

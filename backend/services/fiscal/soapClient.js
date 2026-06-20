@@ -159,5 +159,76 @@ async function enviarLote({
 module.exports = {
   montarLote,
   montarSoapEnvelop,
-  enviarLote
+  enviarLote,
+  montarSoapDFe,
+  enviarSoapDFe
 };
+
+function montarSoapDFe(xmlConsulta, cUF = '23', versao = '1.01') {
+  const xmlSemDeclaracao = String(xmlConsulta || '')
+    .replace(/^\s*<\?xml[^>]*\?>\s*/i, '')
+    .trim();
+
+  return (`<?xml version="1.0" encoding="utf-8"?>` +
+    `<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
+      `xmlns:xsd="http://www.w3.org/2001/XMLSchema" ` +
+      `xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">` +
+      `<soap12:Header>` +
+        `<nfeCabecMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe">` +
+          `<cUF>${cUF}</cUF>` +
+          `<versaoDados>${versao}</versaoDados>` +
+        `</nfeCabecMsg>` +
+      `</soap12:Header>` +
+      `<soap12:Body>` +
+        `<nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe">` +
+          `<nfeDadosMsg>` +
+            `${xmlSemDeclaracao}` +
+          `</nfeDadosMsg>` +
+        `</nfeDistDFeInteresse>` +
+      `</soap12:Body>` +
+    `</soap12:Envelope>`);
+}
+
+async function enviarSoapDFe(envelope, certificadoPath, certificadoSenha, url) {
+  if (!url) {
+    throw new Error('URL de distribuição DF-e não configurada.');
+  }
+
+  validarXmlAntesDeEnviar(envelope);
+  salvarDebug('dfe-xml-consulta.xml', envelope);
+
+  try {
+    const httpsAgent = criarHttpsAgentSefaz({
+      certificadoPath,
+      certificadoSenha,
+      url
+    });
+
+    console.log('Enviando para SEFAZ DF-e URL:', url);
+    console.log('SOAP COMPLETO');
+    console.log(envelope);
+
+    const response = await axios.post(url, envelope, {
+      httpsAgent,
+      proxy: false,
+      timeout: 30000,
+      responseType: 'text',
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+      transitional: {
+        forcedJSONParsing: false
+      },
+      headers: {
+        'Content-Type': 'application/soap+xml; charset=utf-8; action="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse"',
+        'Accept': 'application/soap+xml, text/xml, */*',
+        'User-Agent': 'CDGESTAO-DFE/1.0'
+      }
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('ERRO DF-e:', error.message);
+    console.error('ERRO RESPONSE:', error.response?.data || null);
+    throw new Error(error.response?.data || error.message);
+  }
+}

@@ -2,6 +2,7 @@ let produtosCompraList = [];
 let fornecedoresList = [];
 let itensCompraAtual = [];
 let compraImportadaXml = null;
+let dfeConsultaInterval = null;
 
 function loadCompras() {
     $.when(
@@ -15,6 +16,18 @@ function loadCompras() {
     }).fail(function() {
         $('#page-content').html('<div class="alert alert-danger">Erro ao carregar compras.</div>');
     });
+
+    // Start automatic DF-e consultation every 1 hour
+    if (!dfeConsultaInterval) {
+        dfeConsultaInterval = setInterval(async () => {
+            try {
+                console.log('Iniciando consulta automática de notas recebidas via DF-e...');
+                await consultarNotasRecebidas();
+            } catch (error) {
+                console.error('Erro na consulta automática de DF-e:', error);
+            }
+        }, 3600000); // 1 hour = 3600000 ms
+    }
 }
 
 function renderCompras(compras) {
@@ -258,6 +271,7 @@ function recalcularTotaisCompraNota() {
     const totalNota = Number((valorProdutos - desconto + frete + outras).toFixed(2));
 
     $('#valor_produtos').val(formatNumberInput(valorProdutos));
+    $('#valor_total_itens').val(formatNumberInput(valorProdutos));
     $('#valor_total_nota').val(formatNumberInput(totalNota));
     $('#totalCompra').text(formatCurrency(totalNota));
 
@@ -548,6 +562,12 @@ function showCompraModal() {
                     <div class="modal-header">
                         <h5 class="modal-title">Lançamento de Nova compra</h5>
                         <div>
+                            <button type="button" class="btn btn-sm btn-primary me-1" title="Notas Recebidas DF-e" onclick="abrirModalNotasRecebidas()">
+                                <i class="fas fa-cloud-download-alt"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-success me-1" title="Buscar NF por Chave" onclick="abrirModalBuscaChave()">
+                                <i class="fas fa-key"></i>
+                            </button>
                             <button type="button" class="btn btn-sm btn-light me-1" title="Minimizar" onclick="minimizarModal('compraModal')">
                                 <i class="fas fa-window-minimize"></i>
                             </button>
@@ -613,10 +633,24 @@ function showCompraModal() {
         <input type="text" class="form-control" id="modelo_nf" value="55" maxlength="5">
     </div>
 
-    <div class="col-md-6">
+    <div class="col-md-5">
         <label class="form-label">Chave de acesso</label>
-        <input type="text" class="form-control" id="chave_acesso" maxlength="44" placeholder="Digite ou leia a chave da NF" oninput="this.value = this.value.replace(/\\D/g, '')">
-        <small class="text-muted">Aceita leitura por leitor de código de barras.</small>
+        <input
+            type="text"
+            class="form-control"
+            id="chave_acesso"
+            maxlength="44"
+            placeholder="Digite a chave da NF-e"
+            oninput="this.value=this.value.replace(/\D/g,'')"
+        >
+    </div>
+    <div class="col-md-1 d-flex align-items-end">
+        <button
+            class="btn btn-primary w-100"
+            onclick="buscarNFPorChave()"
+        >
+            <i class="fas fa-search"></i>
+        </button>
     </div>
 
     <div class="col-12">
@@ -629,10 +663,24 @@ function showCompraModal() {
 
 <div class="row g-3">
     <div class="col-12">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="nota_fiscal_avulsa" onchange="toggleNotaFiscalAvulsa()">
+            <label class="form-check-label fw-bold" for="nota_fiscal_avulsa">
+                Lançar Nota Fiscal Avulsa
+            </label>
+            <small class="text-muted d-block">Marque para registrar apenas dados fiscais e financeiros, sem itens e sem movimentação de estoque.</small>
+        </div>
+    </div>
+</div>
+
+<hr>
+
+<div class="row g-3" id="itensCompraSection">
+    <div class="col-12">
         <h6 class="border-bottom pb-2 mb-2">Itens da compra</h6>
     </div>
 </div>
-                        <div class="row g-2 align-items-end">
+                        <div class="row g-2 align-items-end" id="adicionarItemRow">
                             <div class="col-md-4">
                                 <label class="form-label">Código de barras / descrição rápida</label>
                                 <input type="text" class="form-control" id="codigo_barras_item" placeholder="Leitor, código ou nome" list="produtos-datalist" autocomplete="off" oninput="onProdutoInput()" onkeydown="onProdutoKeyDown(event)">
@@ -667,7 +715,7 @@ function showCompraModal() {
                                 <button class="btn btn-success w-100" onclick="adicionarItemCompra()"><i class="fas fa-plus"></i></button>
                             </div>
                         </div>
-                        <div class="table-responsive mt-3">
+                        <div class="table-responsive mt-3" id="itensCompraTable">
                             <table class="table table-bordered align-middle">
                                 <thead>
                                     <tr>
@@ -681,45 +729,52 @@ function showCompraModal() {
                                         <th></th>
                                     </tr>
                                 </thead>
-                                
+
                                 <tbody id="itensCompraBody"></tbody>
                                 <tfoot><tr><th colspan="6" class="text-end">Total</th><th id="totalCompra">${formatCurrency(0)}</th><th></th></tr></tfoot>
                             </table>
+                        </div>
 
-                            <hr>
-                            <div class="row g-2 mt-2">
+                        <hr>
+                        <div class="row g-2 mt-2" id="totaisNotaSection">
     <div class="col-12">
         <h6 class="border-bottom pb-2 mb-2">Totais da nota</h6>
     </div>
 
-    <div class="col-md-2">
+    <div class="col-md-2" id="col_valor_produtos">
         <label class="form-label">Valor produtos</label>
         <input type="number" step="0.01" class="form-control" id="valor_produtos" value="0.00" readonly>
     </div>
 
-    <div class="col-md-2">
+    <div class="col-md-2" id="col_valor_desconto">
         <label class="form-label">Desconto</label>
         <input type="number" step="0.01" class="form-control" id="valor_desconto" value="0.00" oninput="recalcularTotaisCompraNota(); calcularParcelasCompra();">
     </div>
 
-    <div class="col-md-2">
+    <div class="col-md-2" id="col_valor_frete">
         <label class="form-label">Frete</label>
-        <input type="number" step="0.01" class="form-control" id="valor_frete" value="0.00" oninput="recalcularTotaisCompraNota(); calcularParcelasCompra();">
+        <input type="number" step="0.01" class="form-control" id="valor_frete" value="0.00" oninput="recalcularTotaisCompraNota(); recalcularTotalNotaAvulsa(); calcularParcelasCompra();">
     </div>
 
-    <div class="col-md-3">
+    <div class="col-md-2" id="col_valor_outras_despesas">
         <label class="form-label">Outras despesas</label>
-        <input type="number" step="0.01" class="form-control" id="valor_outras_despesas" value="0.00" oninput="recalcularTotaisCompraNota(); calcularParcelasCompra();">
+        <input type="number" step="0.01" class="form-control" id="valor_outras_despesas" value="0.00" oninput="recalcularTotaisCompraNota(); recalcularTotalNotaAvulsa(); calcularParcelasCompra();">
     </div>
 
-    <div class="col-md-3">
-        <label class="form-label">Valor total da nota</label>
+    <div class="col-md-2" id="col_valor_total_itens">
+        <label class="form-label">Valor total itens</label>
+        <input type="number" step="0.01" class="form-control" id="valor_total_itens" value="0.00" readonly oninput="recalcularTotalNotaAvulsa()">
+    </div>
+
+    <div class="col-md-2" id="col_valor_total_nota">
+        <label class="form-label">Valor total da nota *</label>
         <input type="number" step="0.01" class="form-control fw-bold" id="valor_total_nota" value="0.00" readonly>
+        <small class="text-muted" id="valor_total_nota_hint">Calculado automaticamente a partir dos itens.</small>
     </div>
 </div>
 
 <hr>
-                            <div class="row g-2">
+                        <div class="row g-2" id="pagamentoSection">
                             <div class="col-md-3 mb-3">
                                 <label class="form-label">Condição de pagamento *</label>
                                 <select class="form-control" id="condicao_pagamento" onchange="atualizarVisibilidadePagamentoCompra()">
@@ -748,7 +803,6 @@ function showCompraModal() {
                             </div>
                         </div>
                         <div id="parcelas_detalhes" class="mb-3"></div>
-                        </div>
                     </div>
                     
                     <div class="modal-footer">
@@ -763,15 +817,30 @@ function showCompraModal() {
     $('#compraModal').modal('show');
     renderItensCompraTabela();
     atualizarVisibilidadePagamentoCompra();
+    recalcularTotaisCompraNota();
 }
 
 function saveCompra() {
-    if (!itensCompraAtual.length) {
+    const isNotaAvulsa = $('#nota_fiscal_avulsa').is(':checked');
+
+    if (!isNotaAvulsa && !itensCompraAtual.length) {
         showNotification('Adicione ao menos um item.', 'warning');
         return;
     }
 
-    const total = Number($('#valor_total_nota').val()) || itensCompraAtual.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
+    const total = Number($('#valor_total_nota').val()) || (isNotaAvulsa ? 0 : itensCompraAtual.reduce((sum, item) => sum + Number(item.subtotal || 0), 0));
+    const valorTotalItens = Number($('#valor_total_itens').val()) || 0;
+
+    if (isNotaAvulsa && total <= 0) {
+        showNotification('Informe o valor total da nota fiscal.', 'warning');
+        return;
+    }
+
+    if (isNotaAvulsa && valorTotalItens <= 0) {
+        showNotification('Informe o valor total dos itens.', 'warning');
+        return;
+    }
+
     const condicaoPagamento = $('#condicao_pagamento').val();
     const valorEntrada = Number($('#valor_entrada').val()) || 0;
     const parcelas = parseInt($('#parcelas').val(), 10) || 1;
@@ -797,13 +866,13 @@ function saveCompra() {
         serie_nf: $('#serie_nf').val().trim(),
         modelo_nf: $('#modelo_nf').val().trim() || '55',
         chave_acesso: ($('#chave_acesso').val() || '').replace(/\D/g, ''),
-        valor_produtos: Number($('#valor_produtos').val()) || 0,
+        valor_produtos: isNotaAvulsa ? valorTotalItens : (Number($('#valor_produtos').val()) || 0),
         valor_desconto: Number($('#valor_desconto').val()) || 0,
         valor_frete: Number($('#valor_frete').val()) || 0,
         valor_outras_despesas: Number($('#valor_outras_despesas').val()) || 0,
         valor_total_nota: Number($('#valor_total_nota').val()) || 0,
         total,
-        itens: itensCompraAtual.map(item => ({
+        itens: isNotaAvulsa ? [] : itensCompraAtual.map(item => ({
             produto_id: item.produto_id || null,
             produto_nome: item.produto_nome,
             codigo_barras: item.codigo_barras,
@@ -824,7 +893,8 @@ function saveCompra() {
         data_vencimento: $('#data_vencimento').val(),
         parcelas,
         valor_entrada: valorEntrada,
-        observacao: $('#observacao_compra').val()
+        observacao: $('#observacao_compra').val(),
+        nota_fiscal_avulsa: isNotaAvulsa ? 1 : 0
     };
 
     if (data.chave_acesso && data.chave_acesso.length !== 44) {
@@ -844,15 +914,62 @@ function saveCompra() {
         data: JSON.stringify(data)
     }).done(function() {
         $('#compraModal').modal('hide');
-        showNotification('Compra registrada com sucesso!', 'success');
+        showNotification(isNotaAvulsa ? 'Nota Fiscal Avulsa registrada com sucesso!' : 'Compra registrada com sucesso!', 'success');
         loadCompras();
     }).fail(function(xhr) {
         showNotification(xhr.responseJSON?.error || 'Erro ao registrar compra.', 'danger');
     });
 }
 
+function toggleNotaFiscalAvulsa() {
+    const isNotaAvulsa = $('#nota_fiscal_avulsa').is(':checked');
+
+    if (isNotaAvulsa) {
+        $('#itensCompraSection').hide();
+        $('#adicionarItemRow').hide();
+        $('#itensCompraTable').hide();
+        $('#col_valor_produtos').hide();
+        $('#col_valor_desconto').hide();
+        $('#col_valor_total_itens').show();
+        $('#valor_total_itens').prop('readonly', false);
+        $('#valor_total_itens').val('0.00');
+        $('#valor_total_nota').prop('readonly', false);
+        $('#valor_total_nota').val('0.00');
+        $('#valor_total_nota_hint').text('Informe o valor total da nota fiscal.');
+        $('#totaisNotaSection').show();
+        $('#pagamentoSection').show();
+        recalcularTotalNotaAvulsa();
+    } else {
+        $('#itensCompraSection').show();
+        $('#adicionarItemRow').show();
+        $('#itensCompraTable').show();
+        $('#col_valor_produtos').show();
+        $('#col_valor_desconto').show();
+        $('#col_valor_total_itens').show();
+        $('#valor_total_itens').prop('readonly', true);
+        $('#valor_produtos').prop('readonly', true);
+        $('#valor_total_nota').prop('readonly', true);
+        $('#valor_total_nota_hint').text('Calculado automaticamente a partir dos itens.');
+        $('#totaisNotaSection').show();
+        $('#pagamentoSection').show();
+        recalcularTotaisCompraNota();
+    }
+}
+
+function recalcularTotalNotaAvulsa() {
+    const valorTotalItens = Number($('#valor_total_itens').val()) || 0;
+    const frete = Number($('#valor_frete').val()) || 0;
+    const outras = Number($('#valor_outras_despesas').val()) || 0;
+    const totalNota = Number((valorTotalItens + frete + outras).toFixed(2));
+
+    $('#valor_produtos').val(formatNumberInput(valorTotalItens));
+    $('#valor_total_nota').val(formatNumberInput(totalNota));
+}
+
 function viewCompra(id) {
     $.ajax({ url: `${API_URL}/compras/${id}`, method: 'GET' }).done(function(compra) {
+        const isNotaAvulsa = Number(compra.nota_fiscal_avulsa) === 1;
+
         const financeiroHtml = (compra.financeiro || []).map(f => `
             <tr>
                 <td>${f.numero_parcela ? `${f.numero_parcela}/${f.total_parcelas}` : '-'}</td>
@@ -861,7 +978,7 @@ function viewCompra(id) {
                 <td>${formatCurrency(f.valor)}</td>
             </tr>
         `).join('') || '<tr><td colspan="4" class="text-center">Sem lançamentos financeiros.</td></tr>';
-        const itensHtml = (compra.itens || []).map(item => `
+        const itensHtml = isNotaAvulsa ? '<tr><td colspan="8" class="text-center text-muted">Nota Fiscal Avulsa - sem itens</td></tr>' : (compra.itens || []).map(item => `
             <tr>
                 <td>${escapeHtml(item.produto_nome || item.descricao_produto || '-')}</td>
                 <td>${item.quantidade}</td>
@@ -1413,8 +1530,465 @@ function confirmarEmissaoNFeDevolucaoCompra(id) {
                 `cStat: ${cStat || 'não informado'}\n` +
                 `Motivo: ${motivo}`
             );
-
-            showNotification(xhr.responseJSON?.error || 'Erro ao emitir NF-e de devolução.', 'danger');
         });
-    }, 500);
+    });
+}
+
+function abrirConsultaNFeRecebida() {
+    const html = `
+    <div class="modal fade" id="modalConsultaNFeRecebida">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        Notas Recebidas da SEFAZ
+                    </h5>
+                    <button
+                        type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal">
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <button
+                            class="btn btn-success"
+                            onclick="consultarNotasRecebidas()">
+                            Consultar SEFAZ
+                        </button>
+                    </div>
+                    <div id="resultadoNotasRecebidas">
+                        Nenhuma consulta realizada.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+
+    $('body').append(html);
+
+    new bootstrap.Modal(
+        document.getElementById('modalConsultaNFeRecebida')
+    ).show();
+}
+
+async function consultarNotasRecebidas() {
+    try {
+        const response = await fetch(`${API_URL}/dfe/consultar-notas`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.erro || 'Erro ao consultar notas');
+        }
+
+        if (data.sucesso && data.notas && data.notas.length > 0) {
+            let html = `
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Chave</th>
+                            <th>Número</th>
+                            <th>Fornecedor</th>
+                            <th>CNPJ</th>
+                            <th>Data Emissão</th>
+                            <th>Valor Total</th>
+                            <th>Importada</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            data.notas.forEach(nota => {
+                html += `
+                    <tr>
+                        <td style="word-break: break-all;">${nota.chave || '-'}</td>
+                        <td>${nota.numero_nf || '-'}</td>
+                        <td>${nota.fornecedor || '-'}</td>
+                        <td>${nota.cnpj_fornecedor || '-'}</td>
+                        <td>${nota.data_emissao || '-'}</td>
+                        <td>${nota.valor_total ? formatCurrency(nota.valor_total) : '-'}</td>
+                        <td>${nota.importada ? 'Sim' : 'Não'}</td>
+                        <td>
+                            ${!nota.importada ? `
+                                <button
+                                    class="btn btn-sm btn-primary"
+                                    onclick="importarNotaRecebida(${nota.id})"
+                                >
+                                    Importar
+                                </button>
+                            ` : '<span class="text-muted">Já importada</span>'}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+            `;
+
+            $('#resultadoNotasRecebidas').html(html);
+        } else {
+            $('#resultadoNotasRecebidas').html('<p class="text-muted">Nenhuma nota recebida encontrada.</p>');
+        }
+    } catch (error) {
+        console.error('Erro ao consultar notas recebidas:', error);
+        showNotification(error.message || 'Erro ao consultar notas recebidas', 'danger');
+        $('#resultadoNotasRecebidas').html(`<p class="text-danger">Erro: ${error.message}</p>`);
+    }
+}
+
+async function importarNotaRecebida(id) {
+    try {
+        const response = await fetch(`${API_URL}/dfe/importar-nota/${id}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.erro || 'Erro ao importar nota');
+        }
+
+        showNotification('Nota importada com sucesso!', 'success');
+
+        // Refresh the notes list
+        consultarNotasRecebidas();
+
+        // If compra data was returned, load it into the form
+        if (data.compra) {
+            loadCompraIntoForm(data.compra);
+        }
+    } catch (error) {
+        console.error('Erro ao importar nota:', error);
+        showNotification(error.message || 'Erro ao importar nota', 'danger');
+    }
+}
+
+function loadCompraIntoForm(compra) {
+    // Fill the compra form with the imported data
+    $('#fornecedor').val(compra.fornecedor_id || '');
+    $('#numero_nf').val(compra.numero_nf || '');
+    $('#serie_nf').val(compra.serie_nf || '');
+    $('#modelo_nf').val(compra.modelo_nf || '55');
+    $('#chave_acesso').val(compra.chave_acesso || '');
+    $('#data_compra').val(compra.data_compra || '');
+    $('#data_emissao').val(compra.data_emissao || '');
+    $('#condicao_pagamento').val(compra.condicao_pagamento || 'avista');
+    $('#forma_pagamento').val(compra.forma_pagamento || '');
+    $('#data_vencimento').val(compra.data_vencimento || '');
+    $('#parcelas').val(compra.parcelas || 1);
+    $('#valor_entrada').val(compra.valor_entrada || 0);
+    $('#observacao_compra').val(compra.observacao || '');
+
+    // Load items if provided
+    if (compra.itens && compra.itens.length > 0) {
+        // Clear existing items
+        $('#itensCompra').empty();
+
+        compra.itens.forEach(item => {
+            addItemToCompraForm(item);
+        });
+
+        // Calculate totals
+        calcularTotalCompra();
+    }
+
+    showNotification('Dados da nota carregados no formulário', 'success');
+}
+
+function addItemToCompraForm(item) {
+    const rowId = Date.now();
+    const html = `
+        <tr id="item_${rowId}">
+            <td>
+                <input type="text" class="form-control produto-nome" value="${item.produto_nome || item.nome || ''}" readonly>
+                <input type="hidden" class="produto-id" value="${item.produto_id || ''}">
+            </td>
+            <td>
+                <input type="number" class="form-control quantidade" value="${item.quantidade || 1}" step="0.01" onchange="calcularTotalCompra()">
+            </td>
+            <td>
+                <input type="number" class="form-control preco-unitario" value="${item.preco_unitario || item.valor || 0}" step="0.01" onchange="calcularTotalCompra()">
+            </td>
+            <td>
+                <input type="number" class="form-control subtotal" value="${item.subtotal || (item.quantidade * item.preco_unitario)}" readonly>
+            </td>
+            <td>
+                <button type="button" class="btn btn-danger btn-sm" onclick="removerItemCompra(${rowId})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>
+    `;
+
+    $('#itensCompra').append(html);
+}
+
+function removerItemCompra(rowId) {
+    $(`#item_${rowId}`).remove();
+    calcularTotalCompra();
+}
+
+function calcularTotalCompra() {
+    let total = 0;
+    $('#itensCompra tr').each(function() {
+        const quantidade = parseFloat($(this).find('.quantidade').val()) || 0;
+        const precoUnitario = parseFloat($(this).find('.preco-unitario').val()) || 0;
+        const subtotal = quantidade * precoUnitario;
+        $(this).find('.subtotal').val(subtotal.toFixed(2));
+        total += subtotal;
+    });
+
+    $('#totalCompra').val(total.toFixed(2));
+}
+
+async function buscarNFPorChave() {
+    try {
+        const resp = await fetch(`${API_URL}/dfe/distribuir-documentos`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+
+        const dados = await resp.json();
+
+        if (!resp.ok) {
+            throw new Error(dados.mensagem || 'Erro ao buscar notas');
+        }
+
+        console.log('Notas recebidas via DF-e:', dados);
+
+        if (dados.sucesso && dados.notas && dados.notas.length > 0) {
+            showNotification(`${dados.notas.length} notas recebidas via DF-e!`, 'success');
+            
+            // TODO: Process the XMLs and display them in the modal
+            dados.notas.forEach((xml, index) => {
+                console.log(`XML ${index + 1}:`, xml);
+            });
+        } else {
+            showNotification('Nenhuma nota recebida via DF-e', 'warning');
+        }
+    } catch (error) {
+        console.error('Erro ao buscar notas via DF-e:', error);
+        showNotification(error.message || 'Erro ao buscar notas', 'danger');
+    }
+}
+
+function abrirModalNotasRecebidas() {
+    const modalHtml = `
+        <div class="modal fade" id="notasRecebidasModal" tabindex="-1">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Notas Recebidas via DF-e</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <button type="button" class="btn btn-primary" onclick="sincronizarNotasRecebidas()">
+                                <i class="fas fa-sync"></i> Sincronizar Notas
+                            </button>
+                        </div>
+                        <div id="notasRecebidasGrid"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    $('#page-content').append(modalHtml);
+    const modal = new bootstrap.Modal(document.getElementById('notasRecebidasModal'));
+    modal.show();
+    
+    document.getElementById('notasRecebidasModal').addEventListener('hidden.bs.modal', function() {
+        this.remove();
+    });
+}
+
+function abrirModalBuscaChave() {
+    const modalHtml = `
+        <div class="modal fade" id="buscaChaveModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Buscar NF por Chave</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Chave de Acesso (44 dígitos)</label>
+                            <input type="text" class="form-control" id="chaveBusca" maxlength="44" placeholder="Digite a chave de 44 dígitos" oninput="this.value=this.value.replace(/\\D/g,'')">
+                        </div>
+                        <button type="button" class="btn btn-primary" onclick="buscarNotaPorChave()">
+                            <i class="fas fa-search"></i> Buscar
+                        </button>
+                        <div id="resultadoBuscaChave" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    $('#page-content').append(modalHtml);
+    const modal = new bootstrap.Modal(document.getElementById('buscaChaveModal'));
+    modal.show();
+    
+    document.getElementById('buscaChaveModal').addEventListener('hidden.bs.modal', function() {
+        this.remove();
+    });
+}
+
+async function sincronizarNotasRecebidas() {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/dfe/distribuir-documentos`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        const dados = await response.json();
+        
+        if (dados.sucesso) {
+            carregarGridNotas(dados.notas);
+            showNotification('Notas sincronizadas com sucesso!');
+        } else {
+            showNotification(dados.mensagem || 'Erro ao sincronizar notas', 'danger');
+        }
+    } catch (error) {
+        console.error('Erro ao sincronizar notas:', error);
+        showNotification('Erro ao sincronizar notas: ' + error.message, 'danger');
+    }
+}
+
+function carregarGridNotas(notas) {
+    const grid = document.getElementById('notasRecebidasGrid');
+    
+    if (!notas || notas.length === 0) {
+        grid.innerHTML = '<div class="alert alert-info">Nenhuma nota recebida via DF-e</div>';
+        return;
+    }
+    
+    let html = `
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Chave</th>
+                    <th>Número</th>
+                    <th>Série</th>
+                    <th>Fornecedor</th>
+                    <th>CNPJ</th>
+                    <th>Data Emissão</th>
+                    <th>Valor Total</th>
+                    <th>NSU</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    notas.forEach(nota => {
+        html += `
+            <tr>
+                <td>${nota.chave || ''}</td>
+                <td>${nota.numero || ''}</td>
+                <td>${nota.serie || ''}</td>
+                <td>${nota.fornecedor || ''}</td>
+                <td>${nota.cnpj_fornecedor || ''}</td>
+                <td>${nota.data_emissao || ''}</td>
+                <td>${nota.valor_total ? formatarMoeda(nota.valor_total) : ''}</td>
+                <td>${nota.nsu || ''}</td>
+                <td>
+                    <button class="btn btn-success" onclick="importarCompraDfe('${nota.chave}')">
+                        Importar
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table>';
+    grid.innerHTML = html;
+}
+
+async function buscarNotaPorChave() {
+    const chave = document.getElementById('chaveBusca').value;
+    
+    if (!chave || chave.length !== 44) {
+        showNotification('Chave deve ter 44 dígitos', 'warning');
+        return;
+    }
+    
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/dfe/consultar-chave?chave=${chave}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        const dados = await response.json();
+        
+        if (dados.sucesso && dados.notas && dados.notas.length > 0) {
+            const nota = dados.notas[0];
+            document.getElementById('resultadoBuscaChave').innerHTML = `
+                <div class="alert alert-success">
+                    <strong>Nota encontrada!</strong><br>
+                    Número: ${nota.numero}<br>
+                    Fornecedor: ${nota.fornecedor}<br>
+                    Chave: ${nota.chave}
+                </div>
+            `;
+        } else {
+            showNotification(dados.mensagem || 'Nenhuma nota encontrada', 'warning');
+        }
+    } catch (error) {
+        console.error('Erro ao buscar nota:', error);
+        showNotification('Erro ao buscar nota: ' + error.message, 'danger');
+    }
+}
+
+async function importarCompraDfe(chave) {
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/dfe/importar-nota`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ chave })
+        });
+        
+        const dados = await response.json();
+        
+        if (dados.sucesso) {
+            showNotification('Nota importada com sucesso!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('notasRecebidasModal')).hide();
+            loadCompras();
+        } else {
+            showNotification(dados.mensagem || 'Erro ao importar nota', 'danger');
+        }
+    } catch (error) {
+        console.error('Erro ao importar nota:', error);
+        showNotification('Erro ao importar nota: ' + error.message, 'danger');
+    }
+}
+
+function formatarMoeda(valor) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
 }

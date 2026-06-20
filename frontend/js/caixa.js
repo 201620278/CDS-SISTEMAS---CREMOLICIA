@@ -48,8 +48,22 @@ function dinheiro(v) {
   return formatCurrency(Number(v || 0));
 }
 
+function getTerminalRequestData(body = {}) {
+  if (typeof terminalId !== 'undefined' && terminalId !== null) {
+    body.terminal_id = terminalId;
+  }
+  return body;
+}
+
+function getTerminalRequestQuery(params = {}) {
+  if (typeof terminalId !== 'undefined' && terminalId !== null) {
+    params.terminal_id = terminalId;
+  }
+  return params;
+}
+
 function carregarCaixaAberto() {
-  $.get(`${API_URL}/caixa/aberto`, function(resumo) {
+  $.get(`${API_URL}/caixa/aberto`, getTerminalRequestQuery(), function(resumo) {
     if (!resumo) {
       renderStatusCaixa(null);
       renderAbrirCaixa();
@@ -332,7 +346,7 @@ function abrirCaixa() {
     url: `${API_URL}/caixa/abrir`,
     method: 'POST',
     contentType: 'application/json',
-    data: JSON.stringify({ valor_inicial: valor }),
+    data: JSON.stringify(getTerminalRequestData({ valor_inicial: valor })),
     success: function() {
       showNotification('Caixa aberto com sucesso.', 'success');
       carregarCaixaAberto();
@@ -389,6 +403,15 @@ function registrarSangria() {
     $('#senha-admin-input').focus();
   }, 300);
 
+  $('#senha-admin-input').on('keydown', function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (typeof window.confirmarSangriaComSenha === 'function') {
+        window.confirmarSangriaComSenha();
+      }
+    }
+  });
+
   // Funções globais para o modal
   window.fecharModalSenha = function() {
     $('#modalSenhaAdmin').remove();
@@ -415,16 +438,21 @@ function registrarSangria() {
       url: `${API_URL}/caixa/sangria`,
       method: 'POST',
       contentType: 'application/json',
-      data: JSON.stringify({
+      global: false,
+      data: JSON.stringify(getTerminalRequestData({
         valor,
         motivo,
         senha_admin: senhaAdmin
-      }),
+      })),
       success: function() {
         showNotification('Sangria registrada com sucesso.', 'success');
         carregarCaixaAberto();
       },
       error: function(xhr) {
+        if (typeof isErroSessaoExpirada === 'function' && isErroSessaoExpirada(xhr)) {
+          handleUnauthorized();
+          return;
+        }
         showNotification(xhr.responseJSON?.error || 'Erro ao registrar sangria.', 'danger');
       }
     });
@@ -455,7 +483,7 @@ function registrarSuprimento() {
     url: `${API_URL}/caixa/suprimento`,
     method: 'POST',
     contentType: 'application/json',
-    data: JSON.stringify({ valor, motivo }),
+    data: JSON.stringify(getTerminalRequestData({ valor, motivo })),
     success: function() {
       showNotification('Suprimento registrado com sucesso.', 'success');
       carregarCaixaAberto();
@@ -476,10 +504,10 @@ function fecharCaixa() {
     url: `${API_URL}/caixa/fechar`,
     method: 'POST',
     contentType: 'application/json',
-    data: JSON.stringify({
-      valor_fechamento: valorFechamento,
+    data: JSON.stringify(getTerminalRequestData({
+      valor_informado: valorFechamento,
       observacao
-    }),
+    })),
     success: function(res) {
       showNotification('Caixa fechado com sucesso.', 'success');
       carregarCaixaAberto();

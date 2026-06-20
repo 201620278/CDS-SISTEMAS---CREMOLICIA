@@ -4,6 +4,7 @@ const router = express.Router();
 const db = require('../database');
 const moment = require('moment');
 const { gravarAuditoria } = require('../services/auditoria');
+const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
 
 // Listar contas a receber em aberto
 router.get('/em-aberto', (req, res) => {
@@ -93,7 +94,7 @@ router.get('/verificar/:cliente_id', (req, res) => {
 });
 
 // Registrar pagamento de parcela
-router.post('/pagar/:id', (req, res) => {
+router.post('/pagar/:id', validarCaixaAberto, (req, res) => {
   const { id } = req.params;
   const { valor_pago, data_pagamento, forma_pagamento } = req.body;
   const valorNum = Number(valor_pago);
@@ -134,7 +135,7 @@ router.post('/pagar/:id', (req, res) => {
       }
 
       db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+        db.run('BEGIN IMMEDIATE');
 
         db.run(
           `
@@ -205,6 +206,19 @@ router.post('/pagar/:id', (req, res) => {
                             return;
                           }
                           db.run('COMMIT');
+
+                          // registrar auditoria do pagamento de parcela (associando sessao)
+                          gravarAuditoria({
+                            usuario_id: req.operadorId || req.user?.id || null,
+                            usuario_nome: req.user?.nome || req.user?.username || null,
+                            modulo: 'contas_receber',
+                            acao: 'pagar_parcela',
+                            referencia_tipo: 'conta_receber',
+                            referencia_id: id,
+                            detalhes: { valor_pago: valorNum, forma_pagamento: forma_pagamento || null, sessao_id: req.caixaSessaoId || null },
+                            ip_requisicao: req.ip || null
+                          }).catch((auditErr) => console.error('Erro ao gravar auditoria de pagamento de parcela:', auditErr));
+
                           res.json({
                             message: 'Pagamento registrado',
                             id,
@@ -216,6 +230,19 @@ router.post('/pagar/:id', (req, res) => {
                       );
                     } else {
                       db.run('COMMIT');
+
+                      // registrar auditoria do pagamento de parcela (associando sessao)
+                      gravarAuditoria({
+                        usuario_id: req.operadorId || req.user?.id || null,
+                        usuario_nome: req.user?.nome || req.user?.username || null,
+                        modulo: 'contas_receber',
+                        acao: 'pagar_parcela',
+                        referencia_tipo: 'conta_receber',
+                        referencia_id: id,
+                        detalhes: { valor_pago: valorNum, forma_pagamento: forma_pagamento || null, sessao_id: req.caixaSessaoId || null },
+                        ip_requisicao: req.ip || null
+                      }).catch((auditErr) => console.error('Erro ao gravar auditoria de pagamento de parcela:', auditErr));
+
                       res.json({
                         message: 'Pagamento registrado',
                         id,

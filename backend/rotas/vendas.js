@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
 const { emitirPorVendaId } = require('../services/fiscal/emissor');
 
 function agoraLocalBrasil() {
@@ -20,12 +21,15 @@ function agoraLocalBrasil() {
   return `${ano}-${mes}-${dia} ${hora}:${min}:${seg}`;
 }
 
-// BLOQUEIO DEFINITIVO: não permite venda com caixa fechado
-function bloquearVendaSemCaixaAberto(req, res, next) {
-  // Implementação temporária: permita a requisição seguir.
-  // Substituir por verificação real de caixa aberto quando disponível.
-  return next();
+function obterTerminalId(req) {
+  const rawId = req.body?.terminal_id || req.query?.terminal_id || req.headers['x-terminal-id'];
+  const id = Number(rawId || 0);
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
+
+// Nota: validação de caixa agora é feita pelo middleware `validarCaixaAberto`.
+// Funções legadas que consultavam a tabela `caixa` foram removidas para
+// evitar inconsistências com o modelo de `caixa_sessoes`.
 
 // Responder venda com emissão fiscal opcional
 function responderVendaComFiscal(res, payload) {
@@ -208,7 +212,8 @@ router.get('/:id/detalhes', (req, res) => {
 // Criar nova venda
 
 // NOVA LÓGICA: Suporte a venda a prazo
-router.post('/', bloquearVendaSemCaixaAberto, (req, res) => {
+// Substitui o bloqueio por verificação baseada em sessão (`caixa_sessoes`)
+router.post('/', validarCaixaAberto, (req, res) => {
   console.log('ENTROU NA ROTA DE EMISSAO NFC-E');
   console.log('DADOS RECEBIDOS PARA EMISSAO:', req.body);
 
@@ -368,11 +373,11 @@ router.post('/', bloquearVendaSemCaixaAberto, (req, res) => {
       const codigo = `VND-${agoraLocalBrasil().replace(/[- :]/g, '').slice(0, 14)}`;
       const data_venda = agoraLocalBrasil().slice(0, 10);
       db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+        db.run('BEGIN IMMEDIATE');
         db.run(`
-          INSERT INTO vendas (codigo, data_venda, cliente_id, total, desconto, forma_pagamento, status, caixa_id, operador_id)
-          VALUES (?, ?, ?, ?, ?, ?, 'concluida', ?, ?)
-        `, [codigo, data_venda, cliente_id, totalNum, desconto || 0, formaPagamentoFinal, req.caixaId, req.operadorId], function(err) {
+          INSERT INTO vendas (codigo, data_venda, cliente_id, total, desconto, forma_pagamento, status, caixa_sessao_id, caixa_id, terminal_id, operador_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'concluida', ?, ?, ?, ?)
+          `, [codigo, data_venda, cliente_id, totalNum, desconto || 0, formaPagamentoFinal, req.caixaSessaoId || null, req.caixaId, req.terminalId || null, req.operadorId], function(err) {
           if (err) {
             db.run('ROLLBACK');
             res.status(500).json({ error: err.message });
@@ -558,7 +563,7 @@ router.post('/', bloquearVendaSemCaixaAberto, (req, res) => {
     const codigo = `VND-${agoraLocalBrasil().replace(/[- :]/g, '').slice(0, 14)}`;
     const data_venda = agoraLocalBrasil().slice(0, 10);
     db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
+      db.run('BEGIN IMMEDIATE');
       db.run(`
         INSERT INTO vendas (
           codigo,
@@ -569,11 +574,13 @@ router.post('/', bloquearVendaSemCaixaAberto, (req, res) => {
           forma_pagamento,
           status,
           valor_recebido,
+          caixa_sessao_id,
           caixa_id,
+          terminal_id,
           cpf_cnpj_nota,
           operador_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, 'concluida', ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, 'concluida', ?, ?, ?, ?, ?, ?)
       `, [
         codigo,
         data_venda,
@@ -582,7 +589,9 @@ router.post('/', bloquearVendaSemCaixaAberto, (req, res) => {
         desconto || 0,
         formaPagamentoFinal,
         valor_recebido || null,
+        req.caixaSessaoId || null,
         req.caixaId,
+        req.terminalId || null,
         emitir_fiscal ? cpfCnpjNotaLimpo || null : null,
         req.operadorId
       ], function(err) {
@@ -827,7 +836,7 @@ router.post('/', bloquearVendaSemCaixaAberto, (req, res) => {
 });
 
 // Cancelar venda
-router.put('/:id/cancelar', (req, res) => {
+router.put('/:id/cancelar', validarCaixaAberto, (req, res) => {
   const { id } = req.params;
 
   db.get('SELECT * FROM vendas WHERE id = ?', [id], (err, venda) => {
@@ -845,18 +854,18 @@ router.put('/:id/cancelar', (req, res) => {
     }
 
         gravarAuditoria({
-          usuario_id: req.user?.id || null,
+          usuario_id: req.operadorId || req.user?.id || null,
           usuario_nome: req.user?.username || req.user?.nome || null,
           modulo: 'vendas',
           acao: 'cancelar_venda',
           referencia_tipo: 'venda',
           referencia_id: id,
-          detalhes: { motivo_cancelamento: req.body.motivo || null, ip: req.ip },
+          detalhes: { motivo_cancelamento: req.body.motivo || null, ip: req.ip, sessao_id: req.caixaSessaoId || null },
           ip_requisicao: req.ip || null
         }).catch((auditErr) => console.error('Erro ao gravar auditoria de cancelamento de venda:', auditErr));
 
     db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
+      db.run('BEGIN IMMEDIATE');
 
       db.all('SELECT * FROM vendas_itens WHERE venda_id = ?', [id], (itErr, itens) => {
         if (itErr) {
@@ -955,7 +964,7 @@ router.put('/:id/cancelar', (req, res) => {
 });
 
 // Cancelar venda não fiscal
-router.post('/cancelar/:id', (req, res) => {
+router.post('/cancelar/:id', validarCaixaAberto, (req, res) => {
   const vendaId = req.params.id;
   const { motivo } = req.body;
 
@@ -1049,13 +1058,12 @@ router.post('/cancelar/:id', (req, res) => {
                       venda_id,
                       motivo,
                       usuario_id
-                    )
-                    VALUES (?, ?, ?)
+                    ) VALUES (?, ?, ?)
                     `,
                     [
                       vendaId,
                       motivo || 'Não informado',
-                      req.usuario?.id || null
+                      req.operadorId || req.user?.id || null
                     ]
                   );
 

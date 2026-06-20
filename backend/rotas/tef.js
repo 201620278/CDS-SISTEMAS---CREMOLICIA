@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const tefService = require('../services/tef');
+const tefConfiguracaoRoutes = require('./tefConfiguracao');
+const tefConciliacaoRoutes = require('./tefConciliacao');
 const db = require('../database');
+
+router.use(tefConfiguracaoRoutes);
+router.use(tefConciliacaoRoutes);
 
 router.post('/pagar', async (req, res) => {
   try {
@@ -150,6 +155,71 @@ router.post('/cancelar', async (req, res) => {
     console.error('Erro ao cancelar TEF:', error);
     res.status(500).json({
       error: error.message || 'Erro ao cancelar TEF.'
+    });
+  }
+});
+
+router.get('/transacoes/recentes', (req, res) => {
+  const limit = Number(req.query.limit) || 20;
+
+  db.all(`
+    SELECT *
+    FROM tef_transacoes
+    ORDER BY criado_em DESC
+    LIMIT ?
+  `, [limit], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    res.json(rows || []);
+  });
+});
+
+router.post('/transacao/:id/reimprimir', async (req, res) => {
+  try {
+    const transacaoId = Number(req.params.id);
+    const { tipo } = req.body;
+
+    if (!tipo || !['cliente', 'loja'].includes(tipo)) {
+      return res.status(400).json({ error: 'Tipo inválido. Use "cliente" ou "loja".' });
+    }
+
+    db.get(`
+      SELECT *
+      FROM tef_transacoes
+      WHERE id = ?
+    `, [transacaoId], async (err, transacao) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      if (!transacao) {
+        return res.status(404).json({ error: 'Transação não encontrada.' });
+      }
+
+      const comprovante = tipo === 'cliente' 
+        ? transacao.comprovante_cliente 
+        : transacao.comprovante_estabelecimento;
+
+      if (!comprovante) {
+        return res.status(400).json({ error: 'Comprovante não disponível para esta transação.' });
+      }
+
+      // Aqui você pode integrar com o sistema de impressão
+      // Por enquanto, retorna o comprovante para ser impresso pelo frontend
+      res.json({
+        sucesso: true,
+        tipo,
+        comprovante,
+        mensagem: `Comprovante de ${tipo} obtido com sucesso.`
+      });
+    });
+
+  } catch (error) {
+    console.error('Erro ao reimprimir comprovante:', error);
+    res.status(500).json({
+      error: error.message || 'Erro ao reimprimir comprovante.'
     });
   }
 });

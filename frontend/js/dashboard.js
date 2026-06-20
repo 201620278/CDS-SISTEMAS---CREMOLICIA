@@ -313,7 +313,12 @@ async function carregarDashboard(inicio = null, fim = null) {
         const dataInicio = inicio || dataDiasAtrasDashboard(7);
         const dataFim = fim || dataHojeDashboard();
 
-        const response = await fetch(`${apiUrl}/dashboard/resumo?inicio=${dataInicio}&fim=${dataFim}`, {
+        // Check if fiscal mode is active
+        const modoFiscalAtivo = localStorage.getItem('pdv_modo_fiscal_ativo') === '1';
+
+        console.log('Modo fiscal ativo:', modoFiscalAtivo);
+
+        const response = await fetch(`${apiUrl}/dashboard/resumo?inicio=${dataInicio}&fim=${dataFim}&modo_fiscal=${modoFiscalAtivo ? '1' : '0'}`, {
             headers: {
                 Authorization: 'Bearer ' + (localStorage.getItem('token') || '')
             }

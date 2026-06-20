@@ -120,7 +120,7 @@ router.post('/pagar/:id', (req, res) => {
       }
 
       db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+        db.run('BEGIN IMMEDIATE');
 
         db.run(
           `

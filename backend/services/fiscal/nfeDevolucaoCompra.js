@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../../database');
 const { getFiscalConfig, setConfiguracao } = require('./configService');
-const { carregarCertificadoPfx } = require('./certificateService');
+const { carregarCertificadoPfx, extrairNomeEmpresaDoCertificado } = require('./certificateService');
 const { assinarNFe } = require('./signer');
 const { montarLote, enviarLote } = require('./soapClient');
 const {
@@ -152,6 +152,23 @@ function buildXmlNFeDevolucao({ config, compra, itens, numero }) {
   const idDest = String((compra.uf || config.uf || '').toUpperCase()) === String(config.uf || '').toUpperCase() ? '1' : '2';
   const cfop = idDest === '1' ? '5202' : '6202';
 
+  // Try to get company name from certificate
+  let nomeEmpresaCertificado = null;
+  if (config.certificadoPath && config.certificadoSenha) {
+    try {
+      nomeEmpresaCertificado = extrairNomeEmpresaDoCertificado(config.certificadoPath, config.certificadoSenha);
+    } catch (error) {
+      console.error('Erro ao extrair nome do certificado, usando nome da configuração:', error);
+    }
+  }
+
+  const nomeEmpresa = nomeEmpresaCertificado || config.nomeEmpresa || 'EMPRESA NAO INFORMADA';
+  
+  // Generate xFant by removing corporate suffixes (LTDA, EIRELI, ME, etc.)
+  const xFant = nomeEmpresa
+    .replace(/\s+(LTDA|EIRELI|ME|EPP|SS|S\/A|S\.A\.|LIMITADA|LIMITADA|SOCIEDADE)\.?$/gi, '')
+    .trim() || nomeEmpresa;
+
   let totalProdutos = 0;
 
   const detXml = itens.map((item, idx) => {
@@ -229,11 +246,11 @@ function buildXmlNFeDevolucao({ config, compra, itens, numero }) {
         </ide>
         <emit>
           <CNPJ>${onlyDigits(config.cnpj)}</CNPJ>
-          <xNome>${xmlEscape(config.nomeEmpresa)}</xNome>
-          <xFant>${xmlEscape(config.nomeEmpresa)}</xFant>
+          <xNome>${xmlEscape(nomeEmpresa)}</xNome>
+          <xFant>${xmlEscape(xFant)}</xFant>
           <enderEmit>
             <xLgr>${xmlEscape(config.logradouro || 'ENDERECO NAO INFORMADO')}</xLgr>
-            <nro>${xmlEscape(config.numeroEndereco || 'S/N')}</nro>
+            <nro>${xmlEscape((config.numero && String(config.numero).trim() !== '') ? String(config.numero).trim() : 'S/N')}</nro>
             <xBairro>${xmlEscape(config.bairro || 'CENTRO')}</xBairro>
             <cMun>${config.municipioCodigo}</cMun>
             <xMun>${xmlEscape(config.municipioNome)}</xMun>
@@ -251,7 +268,7 @@ function buildXmlNFeDevolucao({ config, compra, itens, numero }) {
           <xNome>${xmlEscape(compra.fornecedor)}</xNome>
           <enderDest>
             <xLgr>${xmlEscape(compra.rua || 'ENDERECO NAO INFORMADO')}</xLgr>
-            <nro>${xmlEscape(compra.numero || 'S/N')}</nro>
+            <nro>${xmlEscape((compra.numero && String(compra.numero).trim() !== '') ? String(compra.numero).trim() : 'S/N')}</nro>
             <xBairro>${xmlEscape(compra.bairro || 'CENTRO')}</xBairro>
             <cMun>${config.municipioCodigo}</cMun>
             <xMun>${xmlEscape(compra.cidade || config.municipioNome)}</xMun>

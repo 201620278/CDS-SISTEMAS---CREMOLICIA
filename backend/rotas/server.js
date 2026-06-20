@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const db = require('../database');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // Chave secreta (deve ser a mesma do auth.js)
 const JWT_SECRET = 'mercantil_do_nando_secret_key_2024';
@@ -92,9 +92,12 @@ const subcategoriasRoutes = require('./rotas/subcategorias');
 const vendasRoutes = require('./rotas/vendas');
 const financeiroRoutes = require('./rotas/financeiro');
 const configuracoesRoutes = require('./rotas/configuracoes');
+const configuracaoRedeRoutes = require('./rotas/configuracao_rede');
+const configuracoesAvancadasRoutes = require('./rotas/configuracoes_avancadas');
 const fornecedoresRoutes = require('./rotas/fornecedores');
 const contasReceberRoutes = require('./rotas/contas_receber');
 const fiscalRoutes = require('./rotas/fiscal');
+const dfeRoutes = require('./rotas/dfe');
 
 app.use('/api/produtos', verificarToken, produtosRoutes);
 app.use('/api/clientes', verificarToken, clientesRoutes);
@@ -105,8 +108,11 @@ app.use('/api/vendas', verificarToken, vendasRoutes);
 app.use('/api/contas-receber', verificarToken, contasReceberRoutes);
 app.use('/api/financeiro', verificarToken, financeiroRoutes);
 app.use('/api/configuracoes', verificarToken, configuracoesRoutes);
+app.use('/api/configuracao-rede', verificarToken, configuracaoRedeRoutes);
+app.use('/api/configuracoes-avancadas', verificarToken, configuracoesAvancadasRoutes);
 app.use('/api/fornecedores', verificarToken, fornecedoresRoutes);
 app.use('/api/fiscal', verificarToken, fiscalRoutes);
+app.use('/api/dfe', verificarToken, dfeRoutes);
 
 // Endpoint para forçar verificação manual de promoções expiradas
 app.post('/api/promocoes/verificar-expiradas', verificarToken, (req, res) => {
@@ -149,4 +155,13 @@ app.listen(PORT, () => {
     
     // Inicializar gerenciamento automático de promoções
     inicializarGerenciamentoPromocoes();
+    try {
+      const configService = require('../services/configuracaoService');
+      configService.ensureConfigFile();
+      const cfg = configService.readConfig();
+      global.CONFIGURACAO_AVANCADA = cfg;
+      console.log('Configuração avançada carregada:', cfg);
+    } catch (e) {
+      console.error('Falha ao carregar configuração avançada:', e.message);
+    }
 });

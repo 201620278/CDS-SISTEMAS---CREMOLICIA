@@ -4,6 +4,7 @@ const db = require('../database');
 const moment = require('moment');
 const multer = require('multer');
 const { gravarAuditoria } = require('../services/auditoria');
+const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const { emitirNFeDevolucaoCompra } = require('../services/fiscal/nfeDevolucaoCompra');
@@ -405,7 +406,7 @@ function garantirTabelaDevolucoesCompra(callback) {
   `, callback);
 }
 
-router.post('/:id/devolver', (req, res) => {
+router.post('/:id/devolver', validarCaixaAberto, (req, res) => {
   const compraId = Number(req.params.id);
   const motivo = String(req.body?.motivo || '').trim();
   const itens = Array.isArray(req.body?.itens) ? req.body.itens : [];
@@ -429,7 +430,7 @@ router.post('/:id/devolver', (req, res) => {
     if (tableErr) return res.status(500).json({ error: tableErr.message });
 
     db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
+      db.run('BEGIN IMMEDIATE');
 
       db.get('SELECT * FROM compras WHERE id = ?', [compraId], (compraErr, compra) => {
         if (compraErr) {
@@ -601,15 +602,15 @@ router.post('/:id/devolver', (req, res) => {
                 }
 
                 db.run('COMMIT');
-                // auditoria de devolução
+                // auditoria de devolução (associando sessao de caixa quando aplicável)
                 gravarAuditoria({
-                  usuario_id: req.user?.id || null,
+                  usuario_id: req.operadorId || req.user?.id || null,
                   usuario_nome: req.user?.nome || req.user?.username || null,
                   modulo: 'compras',
                   acao: 'devolucao_compra',
                   referencia_tipo: 'compra',
                   referencia_id: compraId,
-                  detalhes: { status_compra: statusNovo, valor_devolvido: Number(valorTotalDevolvido.toFixed(2)), motivo },
+                  detalhes: { status_compra: statusNovo, valor_devolvido: Number(valorTotalDevolvido.toFixed(2)), motivo, sessao_id: req.caixaSessaoId || null },
                   ip_requisicao: req.ip || null
                 }).catch((auditErr) => console.error('Erro ao gravar auditoria de devolução de compra:', auditErr));
 
@@ -709,11 +710,16 @@ router.post('/', (req, res) => {
     data_vencimento,
     parcelas,
     valor_entrada,
-    observacao
+    observacao,
+    nota_fiscal_avulsa
   } = req.body;
 
-  if (!Array.isArray(itens) || itens.length === 0) {
-    return res.status(400).json({ error: 'Informe ao menos um item para a compra.' });
+  const isNotaAvulsa = Number(nota_fiscal_avulsa) === 1;
+
+  if (!isNotaAvulsa) {
+    if (!Array.isArray(itens) || itens.length === 0) {
+      return res.status(400).json({ error: 'Informe ao menos um item para a compra.' });
+    }
   }
 
   const totalNum = Number(total);
@@ -726,29 +732,41 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'A chave de acesso da NF deve ter 44 dígitos.' });
   }
 
-  const totalItensCalculado = moeda(
-    itens.reduce((sum, item) => sum + moeda(item.subtotal), 0)
-  );
+  let totalItensCalculado;
+  let totalCalculadoComAjustes;
+  let diferencaTotal;
+  let itensComRateio;
 
-  const totalCalculadoComAjustes = moeda(
-    totalItensCalculado - Number(valor_desconto || 0) + Number(valor_frete || 0) + Number(valor_outras_despesas || 0)
-  );
+  if (isNotaAvulsa) {
+    totalItensCalculado = moeda(valor_total_nota || totalNum);
+    totalCalculadoComAjustes = moeda(valor_total_nota || totalNum);
+    diferencaTotal = 0;
+    itensComRateio = [];
+  } else {
+    totalItensCalculado = moeda(
+      itens.reduce((sum, item) => sum + moeda(item.subtotal), 0)
+    );
 
-  const totalXml = moeda(valor_total_nota || totalNum);
-  const diferencaTotal = moeda(totalXml - totalCalculadoComAjustes);
+    totalCalculadoComAjustes = moeda(
+      totalItensCalculado - Number(valor_desconto || 0) + Number(valor_frete || 0) + Number(valor_outras_despesas || 0)
+    );
 
-  const itensComRateio = calcularRateioItens(itens, {
-    valor_frete,
-    valor_desconto,
-    valor_outras_despesas
-  });
+    const totalXml = moeda(valor_total_nota || totalNum);
+    diferencaTotal = moeda(totalXml - totalCalculadoComAjustes);
+
+    itensComRateio = calcularRateioItens(itens, {
+      valor_frete,
+      valor_desconto,
+      valor_outras_despesas
+    });
+  }
 
   const condicao = condicao_pagamento || 'avista';
   const qtdParcelas = Math.max(1, Number(parcelas) || 1);
 
   const continuarGravacao = () => {
     db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
+      db.run('BEGIN IMMEDIATE');
 
       db.run(`
         INSERT INTO compras (
@@ -757,8 +775,8 @@ router.post('/', (req, res) => {
           valor_produtos, valor_desconto, valor_frete, valor_outras_despesas,
           valor_total_nota, total, total_xml, total_itens_calculado, diferenca_total,
           status, condicao_pagamento, forma_pagamento, data_vencimento,
-          parcelas, valor_entrada, observacao
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'concluida', ?, ?, ?, ?, ?, ?)
+          parcelas, valor_entrada, observacao, nota_fiscal_avulsa
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'concluida', ?, ?, ?, ?, ?, ?, ?)
       `, [
         data_compra,
         data_emissao || null,
@@ -773,17 +791,17 @@ router.post('/', (req, res) => {
         Number(valor_desconto) || 0,
         Number(valor_frete) || 0,
         Number(valor_outras_despesas) || 0,
-        totalXml,
-        totalXml,
-        totalXml,
+        totalCalculadoComAjustes,
+        totalCalculadoComAjustes,
+        totalCalculadoComAjustes,
         totalItensCalculado,
         diferencaTotal,
-        condicao,
         forma_pagamento || null,
         data_vencimento || (condicao === 'avista' ? data_compra : null),
         condicao === 'parcelado' || condicao === 'entrada_parcelado' ? qtdParcelas : 1,
         Number(valor_entrada) || 0,
-        observacao || null
+        observacao || null,
+        isNotaAvulsa ? 1 : 0
       ], function(err) {
         if (err) {
           db.run('ROLLBACK');
@@ -797,20 +815,16 @@ router.post('/', (req, res) => {
 
         const compraId = this.lastID;
 
-        processarItensCompra(compraId, itensComRateio, fornecedor, (itensErr) => {
-          if (itensErr) {
-            db.run('ROLLBACK');
-            return res.status(500).json({ error: itensErr.message });
-          }
-
+        if (isNotaAvulsa) {
+          // Nota Fiscal Avulsa: skip item processing, only create financial records
           criarFinanceiroCompra({
             id: compraId,
             data_compra,
             fornecedor,
-            total: totalXml,
+            total: totalCalculadoComAjustes,
             condicao_pagamento: condicao,
             forma_pagamento,
-            data_vencimento,
+            data_vencimento: data_vencimento || (condicao === 'avista' ? data_compra : null),
             parcelas: (condicao === 'parcelado' || condicao === 'entrada_parcelado') ? qtdParcelas : 1,
             valor_entrada: Number(valor_entrada) || 0,
             observacao
@@ -826,27 +840,72 @@ router.post('/', (req, res) => {
               usuario_id: req.user?.id || null,
               usuario_nome: req.user?.nome || req.user?.username || null,
               modulo: 'compras',
-              acao: 'criar_compra',
+              acao: 'criar_nota_fiscal_avulsa',
               referencia_tipo: 'compra',
               referencia_id: compraId,
-              detalhes: { total: totalXml, fornecedor },
+              detalhes: { total: totalCalculadoComAjustes, fornecedor, nota_fiscal_avulsa: true },
               ip_requisicao: req.ip || null
-            }).catch((auditErr) => console.error('Erro ao gravar auditoria de criação de compra:', auditErr));
+            }).catch((auditErr) => console.error('Erro ao gravar auditoria de nota fiscal avulsa:', auditErr));
 
             res.json({
               id: compraId,
-              message: 'Compra registrada com sucesso e integrada ao estoque/financeiro.',
-              conferencia: {
-                total_xml: totalXml,
-                total_itens_calculado: totalItensCalculado,
-                diferenca_total: diferencaTotal
-              }
+              message: 'Nota Fiscal Avulsa registrada com sucesso.',
+              nota_fiscal_avulsa: true
             });
           });
-        });
+        } else {
+          // Compra Normal: process items and create financial records
+          processarItensCompra(compraId, itensComRateio, fornecedor, (itensErr) => {
+            if (itensErr) {
+              db.run('ROLLBACK');
+              return res.status(500).json({ error: itensErr.message });
+            }
+
+            criarFinanceiroCompra({
+              id: compraId,
+              data_compra,
+              fornecedor,
+              total: totalCalculadoComAjustes,
+              condicao_pagamento: condicao,
+              forma_pagamento,
+              data_vencimento: data_vencimento || (condicao === 'avista' ? data_compra : null),
+              parcelas: (condicao === 'parcelado' || condicao === 'entrada_parcelado') ? qtdParcelas : 1,
+              valor_entrada: Number(valor_entrada) || 0,
+              observacao
+            }, (finErr) => {
+              if (finErr) {
+                db.run('ROLLBACK');
+                return res.status(500).json({ error: finErr.message });
+              }
+
+              db.run('COMMIT');
+
+              gravarAuditoria({
+                usuario_id: req.user?.id || null,
+                usuario_nome: req.user?.nome || req.user?.username || null,
+                modulo: 'compras',
+                acao: 'criar_compra',
+                referencia_tipo: 'compra',
+                referencia_id: compraId,
+                detalhes: { total: totalCalculadoComAjustes, fornecedor },
+                ip_requisicao: req.ip || null
+              }).catch((auditErr) => console.error('Erro ao gravar auditoria de criação de compra:', auditErr));
+
+              res.json({
+                id: compraId,
+                message: 'Compra registrada com sucesso e integrada ao estoque/financeiro.',
+                conferencia: {
+                  total_xml: totalCalculadoComAjustes,
+                  total_itens_calculado: totalItensCalculado,
+                  diferenca_total: diferencaTotal
+                }
+              });
+            });
+          });
+        }
       });
     });
-  };
+  }
 
   if (chaveLimpa) {
     db.get('SELECT id, status FROM compras WHERE chave_acesso = ? LIMIT 1', [chaveLimpa], (dupErr, existente) => {
@@ -894,7 +953,7 @@ router.post('/:id/cancelar', (req, res) => {
   const motivo = String(req.body?.motivo || 'Cancelamento manual da compra').trim();
 
   db.serialize(() => {
-    db.run('BEGIN TRANSACTION');
+    db.run('BEGIN IMMEDIATE');
 
     db.get('SELECT * FROM compras WHERE id = ?', [id], (compraErr, compra) => {
       if (compraErr) {

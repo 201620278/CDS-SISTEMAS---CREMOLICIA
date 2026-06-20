@@ -640,6 +640,12 @@ main {
     opacity: 0.65;
 }
 
+.implantacao-sem-fiscal #faixaSistemaFiscalPdv,
+.implantacao-sem-fiscal .btn-fiscal-bloqueado,
+.implantacao-sem-fiscal [data-fiscal-only="true"] {
+    display: none !important;
+}
+
 /* 🔥 CORREÇÃO DEFINITIVA ELECTRON CLIQUE */
 * {
   -webkit-app-region: no-drag !important;
@@ -714,3 +720,113 @@ a,
   background: #fee2e2;
   color: #991b1b;
 }
+
+/* =========================
+   CONFIGURAÇÕES AVANÇADAS
+========================= */
+
+.config-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.config-card {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 10px;
+  padding: 20px;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  text-align: center;
+}
+
+.config-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+  border-color: #007bff;
+}
+
+.config-card i {
+  font-size: 2rem;
+  color: #007bff;
+  margin-bottom: 12px;
+}
+
+.config-card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: #2c3e50;
+}
+
+.config-card p {
+  font-size: 0.85rem;
+  color: #6c757d;
+  margin: 0;
+}
+
+/* =========================
+   CONFIGURAÇÃO TEF
+========================= */
+
+.configuracao-tef-page {
+  padding: 20px;
+}
+
+.configuracao-tef-header {
+  margin-bottom: 16px;
+}
+
+.configuracao-tef-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 2px solid #e9ecef;
+  margin-bottom: 14px;
+  background: white;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.configuracao-tef-tab {
+  flex: 1 1 auto;
+  min-width: 100px;
+  padding: 10px 12px;
+  border: none;
+  background: #f8f9fa;
+  cursor: pointer;
+  font-weight: 500;
+  color: #6c757d;
+  transition: all 0.3s ease;
+  text-align: center;
+  position: relative;
+}
+
+.configuracao-tef-tab:hover {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.configuracao-tef-tab.active {
+  background: #007bff;
+  color: white;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.configuracao-tef-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #0056b3;
+}
+
+.configuracao-tef-conteudo {
+  background: white;
+  border-radius: 0 0 8px 8px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
+}
+

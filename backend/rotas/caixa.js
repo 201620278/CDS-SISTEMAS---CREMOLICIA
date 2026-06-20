@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const { verificarToken } = require('./auth');
+const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
 const bcrypt = require('bcryptjs');
 const { gravarAuditoria } = require('../services/auditoria');
 
@@ -30,34 +31,103 @@ function hoje() {
   return agoraLocalBrasil().slice(0, 10);
 }
 
+function obterTerminalId(req) {
+  const rawId = req.body?.terminal_id || req.query?.terminal_id || req.headers['x-terminal-id'];
+  const id = Number(rawId || 0);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function obterSessaoAberta(terminalId, callback) {
+  if (terminalId) {
+    db.get(
+      `SELECT * FROM caixa_sessoes WHERE status = 'aberto' AND terminal_id = ? ORDER BY id DESC LIMIT 1`,
+      [terminalId],
+      callback
+    );
+    return;
+  }
+
+  db.get(
+    `SELECT * FROM caixa_sessoes WHERE status = 'aberto' ORDER BY id DESC LIMIT 1`,
+    [],
+    callback
+  );
+}
+
+function obterCaixaAberto(terminalId, callback) {
+  if (terminalId) {
+    db.get(
+      `SELECT * FROM caixa WHERE status = 'aberto' AND terminal_id = ? ORDER BY id DESC LIMIT 1`,
+      [terminalId],
+      callback
+    );
+    return;
+  }
+
+  db.get(
+    `SELECT * FROM caixa WHERE status = 'aberto' ORDER BY id DESC LIMIT 1`,
+    [],
+    callback
+  );
+}
+
 function normalizarForma(forma) {
   return String(forma || '').toLowerCase().trim();
 }
 
-function calcularResumoCaixa(caixa, callback) {
+function calcularResumoCaixa(caixa, options = {}, callback) {
   const data = caixa.data;
+  const sessaoId = options.sessaoId || null;
 
-  db.all(`
-    SELECT forma_pagamento, SUM(total) AS total
-    FROM vendas
-    WHERE status = 'concluida'
-      AND caixa_id = ?
-    GROUP BY forma_pagamento
-  `, [caixa.id], (err, vendas) => {
-    if (err) return callback(err);
+  // Se não recebeu sessaoId, tentar resolver a última sessão para este caixa
+  const obterSessao = (cb) => {
+    // Não tentar resolver "última sessão" implicitamente aqui.
+    // Se a função não recebeu `sessaoId`, retornamos null e deixamos o chamador decidir.
+    return cb(null, sessaoId || null);
+  };
 
-    db.get(`
-      SELECT SUM(valor) AS total_sangrias
-      FROM caixa_movimentacoes
-      WHERE caixa_id = ? AND tipo = 'sangria'
-    `, [caixa.id], (err2, sangriasRow) => {
-      if (err2) return callback(err2);
+  obterSessao((sessErr, resolvedSessaoId) => {
+    if (sessErr) return callback(sessErr);
+
+    if (!resolvedSessaoId) {
+      // Sem sessão associada -> retornar resumo vazio baseado no caixa
+      return callback(null, {
+        caixa,
+        total_vendido: 0,
+        dinheiro: {
+          valor_inicial: n(caixa.valor_inicial),
+          vendas_dinheiro: 0,
+          suprimentos: 0,
+          sangrias: 0,
+          dinheiro_esperado: n(caixa.valor_inicial)
+        },
+        digital: { pix: 0, cartao_credito: 0, cartao_debito: 0, total_digital: 0 },
+        prazo: 0,
+        outras_formas: 0,
+        saldo_geral: n(caixa.valor_inicial)
+      });
+    }
+
+    db.all(`
+      SELECT forma_pagamento, SUM(total) AS total
+      FROM vendas
+      WHERE status = 'concluida'
+        AND caixa_sessao_id = ?
+      GROUP BY forma_pagamento
+    `, [resolvedSessaoId], (err, vendas) => {
+      if (err) return callback(err);
 
       db.get(`
-        SELECT SUM(valor) AS total_suprimentos
+        SELECT SUM(valor) AS total_sangrias
         FROM caixa_movimentacoes
-        WHERE caixa_id = ? AND tipo = 'suprimento'
-      `, [caixa.id], (err3, suprimentosRow) => {
+        WHERE sessao_id = ? AND tipo = 'sangria'
+      `, [resolvedSessaoId], (err2, sangriasRow) => {
+      if (err2) return callback(err2);
+        db.get(`
+          SELECT SUM(valor) AS total_suprimentos
+          FROM caixa_movimentacoes
+          WHERE sessao_id = ? AND tipo = 'suprimento'
+        `, [resolvedSessaoId], (err3, suprimentosRow) => {
         if (err3) return callback(err3);
 
         let vendasDinheiro = 0;
@@ -120,6 +190,12 @@ function calcularResumoCaixa(caixa, callback) {
       });
     });
   });
+});
+}
+
+function isAdminUsuario(usuario) {
+  const perfil = String(usuario?.perfil || '').trim().toUpperCase();
+  return usuario?.role === 'admin' || ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(perfil);
 }
 
 function validarSenhaAdmin(senhaAdmin, callback) {
@@ -127,7 +203,7 @@ function validarSenhaAdmin(senhaAdmin, callback) {
     return callback(null, false);
   }
 
-  db.all(`SELECT * FROM usuarios`, [], async (err, usuarios) => {
+  db.all(`SELECT * FROM usuarios WHERE COALESCE(ativo, 1) = 1`, [], async (err, usuarios) => {
     if (err) return callback(err);
 
     if (!usuarios || usuarios.length === 0) {
@@ -135,26 +211,13 @@ function validarSenhaAdmin(senhaAdmin, callback) {
     }
 
     for (const usuario of usuarios) {
-      const perfilUsuario = String(
-        usuario.perfil ||
-        usuario.nivel ||
-        usuario.cargo ||
-        usuario.role ||
-        usuario.funcao ||
-        ''
-      ).toLowerCase();
-
-      const isAdmin =
-        perfilUsuario === 'admin' ||
-        perfilUsuario === 'administrador' ||
-        perfilUsuario === 'gerente';
-
-      if (!isAdmin) continue;
+      if (!isAdminUsuario(usuario)) continue;
 
       const senhaBanco =
+        usuario.password_hash ||
+        usuario.senha_hash ||
         usuario.senha ||
-        usuario.password ||
-        usuario.senha_hash;
+        usuario.password;
 
       if (!senhaBanco) continue;
 
@@ -170,19 +233,34 @@ function validarSenhaAdmin(senhaAdmin, callback) {
 }
 
 router.get('/aberto', (req, res) => {
-  db.get(`
-    SELECT *
-    FROM caixa
-    WHERE status = 'aberto'
-    ORDER BY id DESC
-    LIMIT 1
-  `, [], (err, caixa) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!caixa) return res.json(null);
+  const terminalId = obterTerminalId(req);
 
-    calcularResumoCaixa(caixa, (calcErr, resumo) => {
-      if (calcErr) return res.status(500).json({ error: calcErr.message });
-      res.json(resumo);
+  // Preferir sessão aberta por terminal
+  obterSessaoAberta(terminalId, (sessErr, sessao) => {
+    if (sessErr) return res.status(500).json({ error: sessErr.message });
+    if (sessao) {
+      // buscar caixa relacionado
+      db.get('SELECT * FROM caixa WHERE id = ?', [sessao.caixa_id], (cErr, caixa) => {
+        if (cErr) return res.status(500).json({ error: cErr.message });
+        if (!caixa) return res.json(null);
+        calcularResumoCaixa(caixa, { sessaoId: sessao.id }, (calcErr, resumo) => {
+          if (calcErr) return res.status(500).json({ error: calcErr.message });
+          resumo.sessao = sessao;
+          res.json(resumo);
+        });
+      });
+      return;
+    }
+
+    // fallback para compatibilidade com implementações antigas
+    obterCaixaAberto(terminalId, (err, caixa) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!caixa) return res.json(null);
+
+      calcularResumoCaixa(caixa, {}, (calcErr, resumo) => {
+        if (calcErr) return res.status(500).json({ error: calcErr.message });
+        res.json(resumo);
+      });
     });
   });
 });
@@ -217,72 +295,80 @@ router.get('/saldo-inicial-sugerido', (req, res) => {
 
 router.post('/abrir', verificarToken, (req, res) => {
   const valorInicial = n(req.body.valor_inicial);
+  const terminalId = obterTerminalId(req);
 
-  db.get(`
-    SELECT id FROM caixa
-    WHERE status = 'aberto'
-    LIMIT 1
-  `, [], (err, caixaAberto) => {
-    if (err) return res.status(500).json({ error: err.message });
-
-    if (caixaAberto) {
-      return res.status(400).json({
-        error: 'Já existe um caixa aberto. Feche o caixa atual antes de abrir outro.'
-      });
+  // Impedir abertura se já existir SESSÃO aberta neste terminal (lock de terminal)
+  obterSessaoAberta(terminalId, (sessErr, sessaoAberta) => {
+    if (sessErr) return res.status(500).json({ error: sessErr.message });
+    if (sessaoAberta) {
+      return res.status(400).json({ error: 'Já existe um caixa aberto neste terminal.' });
     }
 
-    db.run(`
-      INSERT INTO caixa (
-        data,
-        valor_inicial,
-        status,
-        aberto_em,
-        aberto_por
-      ) VALUES (
-        DATE('now', 'localtime'),
-        ?,
-        'aberto',
-        DATETIME('now', 'localtime'),
-        ?
-      )
-    `, [valorInicial, req.user?.id || null], function(insertErr) {
+    const caixaData = {
+      data: hoje(),
+      valor_inicial: valorInicial,
+      status: 'aberto',
+      aberto_em: agoraLocalBrasil(),
+      operador_abertura_id: req.user?.id || null,
+      terminal_id: terminalId
+    };
+
+    db.insertSafe('caixa', caixaData, function(insertErr, info) {
       if (insertErr) return res.status(500).json({ error: insertErr.message });
 
-      const caixaId = this.lastID;
+      const caixaId = info && info.lastID ? info.lastID : this && this.lastID ? this.lastID : null;
 
+      // Criar sessão de caixa vinculada (cada abertura gera nova sessão)
       db.run(`
-        INSERT INTO caixa_movimentacoes (
-          caixa_id,
-          tipo,
-          valor,
-          motivo,
-          usuario_id
-        ) VALUES (?, 'abertura', ?, 'Abertura de caixa', ?)
-      `, [caixaId, valorInicial, req.user?.id || null], (movErr) => {
-        if (movErr) return res.status(500).json({ error: movErr.message });
+        INSERT INTO caixa_sessoes (
+          caixa_id, terminal_id, operador_id, valor_abertura, aberto_em, status
+        ) VALUES (?, ?, ?, ?, DATETIME('now','localtime'), 'aberto')
+      `, [caixaId, terminalId, req.user?.id || null, valorInicial], function(sessInsertErr) {
+        if (sessInsertErr) {
+          // tentar rollback da caixa principal
+          db.run('DELETE FROM caixa WHERE id = ?', [caixaId]);
+          return res.status(500).json({ error: sessInsertErr.message });
+        }
 
-        // Registrar auditoria centralizada
-        gravarAuditoria({
-          usuario_id: req.user?.id || null,
-          usuario_nome: req.user?.nome || req.user?.username || null,
-          modulo: 'caixa',
-          acao: 'abrir_caixa',
-          referencia_tipo: 'caixa',
-          referencia_id: caixaId,
-          detalhes: { valor_inicial: valorInicial },
-          ip_requisicao: req.ip || null
-        }).catch((auditErr) => console.error('Erro ao gravar auditoria de abertura de caixa:', auditErr));
+        const sessaoId = this.lastID;
 
-        res.json({
-          message: 'Caixa aberto com sucesso.',
-          caixa_id: caixaId
+        db.run(`
+          INSERT INTO caixa_movimentacoes (
+            caixa_id,
+            sessao_id,
+            tipo,
+            valor,
+            motivo,
+            usuario_id,
+            terminal_id
+          ) VALUES (?, ?, 'abertura', ?, 'Abertura de caixa', ?, ?)
+        `, [caixaId, sessaoId, valorInicial, req.user?.id || null, terminalId], (movErr) => {
+          if (movErr) return res.status(500).json({ error: movErr.message });
+
+          // Registrar auditoria centralizada
+          gravarAuditoria({
+            usuario_id: req.user?.id || null,
+            usuario_nome: req.user?.nome || req.user?.username || null,
+            modulo: 'caixa',
+            acao: 'abrir_caixa',
+            referencia_tipo: 'caixa_sessao',
+            referencia_id: sessaoId,
+            detalhes: { valor_inicial: valorInicial, caixa_id: caixaId },
+            ip_requisicao: req.ip || null
+          }).catch((auditErr) => console.error('Erro ao gravar auditoria de abertura de caixa:', auditErr));
+
+          res.json({
+            message: 'Caixa aberto com sucesso.',
+            caixa_id: caixaId,
+            sessao_id: sessaoId
+          });
         });
       });
     });
   });
 });
 
-router.post('/sangria', verificarToken, async (req, res) => {
+router.post('/sangria', verificarToken, validarCaixaAberto, async (req, res) => {
   const valor = n(req.body.valor);
   const motivo = req.body.motivo || 'Sangria de caixa';
   const operadorId = req.user?.id || null;
@@ -293,75 +379,81 @@ router.post('/sangria', verificarToken, async (req, res) => {
     return res.status(400).json({ error: 'Informe um valor válido para sangria.' });
   }
 
+  const terminalId = obterTerminalId(req);
+
   validarSenhaAdmin(senhaAdmin, (senhaErr, senhaValida) => {
     if (senhaErr) {
       return res.status(500).json({ error: senhaErr.message });
     }
 
     if (!senhaValida) {
-      return res.status(403).json({ error: 'Senha de administrador inválida para realizar sangria.' });
+      return res.status(400).json({ error: 'Senha de administrador inválida para realizar sangria.' });
     }
 
-    db.get(
-      `SELECT * FROM caixa WHERE status = 'aberto' ORDER BY id DESC LIMIT 1`,
-      [],
-      (errCaixa, caixa) => {
-        if (errCaixa) {
-          return res.status(500).json({ error: errCaixa.message });
+    obterSessaoAberta(terminalId, (errSess, sessao) => {
+        if (errSess) {
+          return res.status(500).json({ error: errSess.message });
         }
 
-        if (!caixa) {
-          return res.status(400).json({ error: 'Nenhum caixa aberto.' });
+        if (!sessao) {
+          return res.status(400).json({ error: terminalId ? 'Nenhuma sessão de caixa aberta para este terminal.' : 'Nenhuma sessão de caixa aberta.' });
         }
 
-        calcularResumoCaixa(caixa, (calcErr, resumo) => {
-          if (calcErr) {
-            return res.status(500).json({ error: calcErr.message });
-          }
+        db.get('SELECT * FROM caixa WHERE id = ?', [sessao.caixa_id], (errCaixa, caixa) => {
+          if (errCaixa) return res.status(500).json({ error: errCaixa.message });
+          if (!caixa) return res.status(400).json({ error: 'Caixa vinculado à sessão não encontrado.' });
 
-          if (valor > resumo.dinheiro.dinheiro_esperado) {
-            return res.status(400).json({
-              error: `Sangria maior que o dinheiro esperado. Disponível: ${resumo.dinheiro.dinheiro_esperado.toFixed(2)}`
-            });
-          }
+          calcularResumoCaixa(caixa, { sessaoId: sessao.id }, (calcErr, resumo) => {
+            if (calcErr) {
+              return res.status(500).json({ error: calcErr.message });
+            }
 
-          db.serialize(() => {
-            db.run('BEGIN TRANSACTION');
+            if (valor > resumo.dinheiro.dinheiro_esperado) {
+              return res.status(400).json({
+                error: `Sangria maior que o dinheiro esperado. Disponível: ${resumo.dinheiro.dinheiro_esperado.toFixed(2)}`
+              });
+            }
 
-            db.run(
-              `INSERT INTO caixa_movimentacoes (
-                caixa_id,
-                tipo,
-                valor,
-                motivo,
-                usuario_id,
-                operador_nome
-              ) VALUES (?, 'sangria', ?, ?, ?, ?)`,
-              [caixa.id, valor, motivo, operadorId, operadorNome],
-              (movErr) => {
-                if (movErr) {
-                  db.run('ROLLBACK');
-                  return res.status(500).json({ error: movErr.message });
-                }
+            db.serialize(() => {
+              db.run('BEGIN IMMEDIATE');
 
-                db.run(
-                  `INSERT INTO auditoria_caixa (
-                    caixa_id,
-                    operador_id,
-                    acao,
-                    tipo_movimentacao,
-                    valor,
-                    detalhes
-                  ) VALUES (?, ?, 'sangria', 'sangria', ?, ?)`,
-                  [caixa.id, operadorId, valor, JSON.stringify({ motivo, operador: operadorNome })],
-                  (auditErr) => {
-                    if (auditErr) console.error('Erro ao registrar auditoria:', auditErr);
+              db.run(
+                `INSERT INTO caixa_movimentacoes (
+                  caixa_id,
+                  sessao_id,
+                  tipo,
+                  valor,
+                  motivo,
+                  usuario_id,
+                  operador_nome,
+                  terminal_id
+                ) VALUES (?, ?, 'sangria', ?, ?, ?, ?, ?)`,
+                [caixa.id, sessao.id, valor, motivo, operadorId, operadorNome, terminalId],
+                (movErr) => {
+                  if (movErr) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ error: movErr.message });
+                  }
+
+                  db.run(
+                      `INSERT INTO auditoria_caixa (
+                        sessao_id,
+                        caixa_id,
+                        operador_id,
+                        terminal_id,
+                        acao,
+                        tipo_movimentacao,
+                        valor,
+                        detalhes
+                      ) VALUES (?, ?, ?, ?, 'sangria', 'sangria', ?, ?)`,
+                      [sessao.id, caixa.id, operadorId, sessao.terminal_id || terminalId, valor, JSON.stringify({ motivo, operador: operadorNome, sessao_id: sessao.id })], (auditErr) => {
+                      if (auditErr) console.error('Erro ao registrar auditoria:', auditErr);
 
                       db.run('COMMIT', (commitErr) => {
-                      if (commitErr) {
-                        db.run('ROLLBACK');
-                        return res.status(500).json({ error: commitErr.message });
-                      }
+                        if (commitErr) {
+                          db.run('ROLLBACK');
+                          return res.status(500).json({ error: commitErr.message });
+                        }
 
                         // auditoria centralizada
                         gravarAuditoria({
@@ -369,9 +461,9 @@ router.post('/sangria', verificarToken, async (req, res) => {
                           usuario_nome: operadorNome,
                           modulo: 'caixa',
                           acao: 'sangria',
-                          referencia_tipo: 'caixa',
-                          referencia_id: caixa.id,
-                          detalhes: { valor, motivo },
+                          referencia_tipo: 'caixa_sessao',
+                          referencia_id: sessao.id,
+                          detalhes: { valor, motivo, caixa_id: caixa.id },
                           ip_requisicao: req.ip || null
                         }).catch((auditErr) => console.error('Erro ao gravar auditoria de sangria:', auditErr));
 
@@ -381,11 +473,12 @@ router.post('/sangria', verificarToken, async (req, res) => {
                           motivo,
                           operador: operadorNome
                         });
-                    });
-                  }
-                );
-              }
-            );
+                      });
+                    }
+                  );
+                }
+              );
+            });
           });
         });
       }
@@ -393,7 +486,7 @@ router.post('/sangria', verificarToken, async (req, res) => {
   });
 });
 
-router.post('/suprimento', verificarToken, (req, res) => {
+router.post('/suprimento', verificarToken, validarCaixaAberto, (req, res) => {
   const valor = n(req.body.valor);
   const motivo = req.body.motivo || 'Suprimento de caixa';
   const operadorId = req.user?.id || null;
@@ -403,45 +496,52 @@ router.post('/suprimento', verificarToken, (req, res) => {
     return res.status(400).json({ error: 'Informe um valor válido para suprimento.' });
   }
 
-  db.get(
-    `SELECT * FROM caixa WHERE status = 'aberto' ORDER BY id DESC LIMIT 1`,
-    [],
-    (err, caixa) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!caixa) return res.status(400).json({ error: 'Nenhum caixa aberto.' });
+  const terminalId = obterTerminalId(req);
 
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+  obterSessaoAberta(terminalId, (errSess, sessao) => {
+      if (errSess) return res.status(500).json({ error: errSess.message });
+      if (!sessao) return res.status(400).json({ error: terminalId ? 'Nenhuma sessão de caixa aberta para este terminal.' : 'Nenhuma sessão de caixa aberta.' });
 
-        db.run(
-          `INSERT INTO caixa_movimentacoes (
-            caixa_id,
-            tipo,
-            valor,
-            motivo,
-            usuario_id,
-            operador_nome
-          ) VALUES (?, 'suprimento', ?, ?, ?, ?)`,
-          [caixa.id, valor, motivo, operadorId, operadorNome],
-          (movErr) => {
-            if (movErr) {
-              db.run('ROLLBACK');
-              return res.status(500).json({ error: movErr.message });
-            }
+      db.get('SELECT * FROM caixa WHERE id = ?', [sessao.caixa_id], (err, caixa) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!caixa) return res.status(400).json({ error: 'Caixa vinculado à sessão não encontrado.' });
 
-            db.run(
-              `INSERT INTO auditoria_caixa (
-                caixa_id,
-                operador_id,
-                acao,
-                tipo_movimentacao,
-                valor,
-                detalhes,
-                ip_requisicao
-              ) VALUES (?, ?, 'suprimento', 'suprimento', ?, ?, ?)`,
-              [caixa.id, operadorId, valor, JSON.stringify({ motivo, operador: operadorNome }), req.ip || null],
-              (auditErr) => {
-                if (auditErr) console.error('Erro ao registrar auditoria:', auditErr);
+        db.serialize(() => {
+          db.run('BEGIN IMMEDIATE');
+
+          db.run(
+            `INSERT INTO caixa_movimentacoes (
+              caixa_id,
+              sessao_id,
+              tipo,
+              valor,
+              motivo,
+              usuario_id,
+              operador_nome,
+              terminal_id
+            ) VALUES (?, ?, 'suprimento', ?, ?, ?, ?, ?)`,
+            [caixa.id, sessao.id, valor, motivo, operadorId, operadorNome, terminalId],
+            (movErr) => {
+              if (movErr) {
+                db.run('ROLLBACK');
+                return res.status(500).json({ error: movErr.message });
+              }
+
+              db.run(
+                `INSERT INTO auditoria_caixa (
+                  sessao_id,
+                  caixa_id,
+                  operador_id,
+                  terminal_id,
+                  acao,
+                  tipo_movimentacao,
+                  valor,
+                  detalhes,
+                  ip_requisicao
+                ) VALUES (?, ?, ?, ?, 'suprimento', 'suprimento', ?, ?, ?)`,
+                [sessao.id, caixa.id, operadorId, sessao.terminal_id || terminalId, valor, JSON.stringify({ motivo, operador: operadorNome, sessao_id: sessao.id }), req.ip || null],
+                (auditErr) => {
+                  if (auditErr) console.error('Erro ao registrar auditoria:', auditErr);
 
                   db.run('COMMIT', (commitErr) => {
                     if (commitErr) {
@@ -455,9 +555,9 @@ router.post('/suprimento', verificarToken, (req, res) => {
                       usuario_nome: operadorNome,
                       modulo: 'caixa',
                       acao: 'suprimento',
-                      referencia_tipo: 'caixa',
-                      referencia_id: caixa.id,
-                      detalhes: { valor, motivo },
+                      referencia_tipo: 'caixa_sessao',
+                      referencia_id: sessao.id,
+                      detalhes: { valor, motivo, caixa_id: caixa.id },
                       ip_requisicao: req.ip || null
                     }).catch((auditErr) => console.error('Erro ao gravar auditoria de suprimento:', auditErr));
 
@@ -468,48 +568,44 @@ router.post('/suprimento', verificarToken, (req, res) => {
                       operador: operadorNome
                     });
                   });
-              }
-            );
-          }
-        );
+                }
+              );
+            }
+          );
+        });
       });
     }
   );
 });
 
-router.post('/fechar', verificarToken, (req, res) => {
+router.post('/fechar', verificarToken, validarCaixaAberto, (req, res) => {
   const valorInformado = n(req.body.valor_informado);
   const observacao = req.body.observacao || '';
   const operadorId = req.user?.id || null;
   const operadorNome = req.user?.nome || req.user?.username || 'Desconhecido';
+  const terminalId = obterTerminalId(req);
+  obterSessaoAberta(terminalId, (errSess, sessao) => {
+      if (errSess) return res.status(500).json({ error: errSess.message });
+      if (!sessao) return res.status(400).json({ error: terminalId ? 'Nenhuma sessão de caixa aberta para este terminal.' : 'Nenhuma sessão de caixa aberta.' });
 
-  db.get(
-    `SELECT * FROM caixa WHERE status = 'aberto' ORDER BY id DESC LIMIT 1`,
-    [],
-    (err, caixa) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!caixa) return res.status(400).json({ error: 'Nenhum caixa aberto.' });
+      db.get('SELECT * FROM caixa WHERE id = ?', [sessao.caixa_id], (err, caixa) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!caixa) return res.status(400).json({ error: 'Caixa vinculado à sessão não encontrado.' });
 
-      // Validar fechamento duplicado
-      db.get(
-        `SELECT id FROM caixa_fechamentos WHERE caixa_id = ? LIMIT 1`,
-        [caixa.id],
-        (checkErr, jaFechado) => {
+        // Verificar se sessão já possui fechamento (impedir duplicidade)
+        db.get(`SELECT id FROM caixa_fechamentos WHERE sessao_id = ? LIMIT 1`, [sessao.id], (checkErr, jaFechado) => {
           if (checkErr) return res.status(500).json({ error: checkErr.message });
           if (jaFechado) {
-            return res.status(400).json({ 
-              error: 'Este caixa já foi fechado. Use REIMPRESSÃO se necessário reimprimir.' 
-            });
+            return res.status(400).json({ error: 'Esta sessão de caixa já foi fechada. Use REIMPRESSÃO se necessário reimprimir.' });
           }
 
-          // Calcular fechamento detalhado
-          calcularFechamentoDetalhado(caixa, (calcErr, detalhes) => {
+          calcularFechamentoDetalhado(caixa, { sessaoId: sessao.id }, (calcErr, detalhes) => {
             if (calcErr) return res.status(500).json({ error: calcErr.message });
 
             const diferenca = valorInformado - detalhes.total_esperado;
 
             db.serialize(() => {
-              db.run('BEGIN TRANSACTION');
+              db.run('BEGIN IMMEDIATE');
 
               // Atualizar status do caixa e resumos do fechamento
               db.run(`
@@ -542,8 +638,10 @@ router.post('/fechar', verificarToken, (req, res) => {
                 // Registrar fechamento detalhado
                 db.run(`
                   INSERT INTO caixa_fechamentos (
+                    sessao_id,
                     caixa_id,
                     operador_id,
+                    terminal_id,
                     data_fechamento,
                     valor_inicial,
                     vendas_dinheiro,
@@ -559,10 +657,12 @@ router.post('/fechar', verificarToken, (req, res) => {
                     total_informado,
                     diferenca,
                     observacao
-                  ) VALUES (?, ?, DATETIME('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  ) VALUES (?, ?, ?, ?, DATETIME('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `, [
+                  sessao.id,
                   caixa.id,
                   operadorId,
+                  sessao.terminal_id || terminalId,
                   detalhes.valor_inicial,
                   detalhes.vendas_dinheiro,
                   detalhes.vendas_pix,
@@ -583,45 +683,55 @@ router.post('/fechar', verificarToken, (req, res) => {
                     return res.status(500).json({ error: insertErr.message });
                   }
 
-                  // Registrar auditoria
-                  db.run(`
-                    INSERT INTO auditoria_caixa (
-                      caixa_id,
-                      operador_id,
-                      acao,
-                      tipo_movimentacao,
-                      valor,
-                      detalhes,
-                      ip_requisicao
-                    ) VALUES (?, ?, 'fechamento', 'fechamento', ?, ?, ?)
-                  `, [
-                    caixa.id,
-                    operadorId,
-                    valorInformado,
-                    JSON.stringify({
-                      diferenca,
-                      operador: operadorNome,
-                      observacao
-                    }),
-                    req.ip || null
-                  ], (auditErr) => {
-                    if (auditErr) console.error('Erro ao registrar auditoria:', auditErr);
+                  // Atualizar sessão para fechado
+                  db.run(`UPDATE caixa_sessoes SET status = 'fechado', fechado_em = DATETIME('now','localtime'), valor_fechamento = ? WHERE id = ?`, [valorInformado, sessao.id], (sessUpdErr) => {
+                    if (sessUpdErr) console.error('Erro ao atualizar sessao:', sessUpdErr);
 
-                    // Registrar movimentação
+                    // Registrar auditoria
                     db.run(`
-                      INSERT INTO caixa_movimentacoes (
+                      INSERT INTO auditoria_caixa (
+                        sessao_id,
                         caixa_id,
-                        tipo,
+                        operador_id,
+                        terminal_id,
+                        acao,
+                        tipo_movimentacao,
                         valor,
-                        motivo,
-                        usuario_id,
-                        operador_nome
-                      ) VALUES (?, 'fechamento', ?, 'Fechamento de caixa', ?, ?)
-                    `, [caixa.id, valorInformado, operadorId, operadorNome], (movErr) => {
-                      if (movErr) {
-                        db.run('ROLLBACK');
-                        return res.status(500).json({ error: movErr.message });
-                      }
+                        detalhes,
+                        ip_requisicao
+                      ) VALUES (?, ?, ?, ?, 'fechamento', 'fechamento', ?, ?, ?)
+                    `, [
+                      sessao.id,
+                      caixa.id,
+                      operadorId,
+                      sessao.terminal_id || terminalId,
+                      valorInformado,
+                      JSON.stringify({
+                        diferenca,
+                        operador: operadorNome,
+                        observacao,
+                        sessao_id: sessao.id
+                      }),
+                      req.ip || null
+                    ], (auditErr) => {
+                      if (auditErr) console.error('Erro ao registrar auditoria:', auditErr);
+
+                      // Registrar movimentação
+                      db.run(`
+                        INSERT INTO caixa_movimentacoes (
+                          caixa_id,
+                          sessao_id,
+                          tipo,
+                          valor,
+                          motivo,
+                          usuario_id,
+                          operador_nome
+                        ) VALUES (?, ?, 'fechamento', ?, 'Fechamento de caixa', ?, ?)
+                      `, [caixa.id, sessao.id, valorInformado, operadorId, operadorNome], (movErr) => {
+                        if (movErr) {
+                          db.run('ROLLBACK');
+                          return res.status(500).json({ error: movErr.message });
+                        }
 
                         db.run('COMMIT', (commitErr) => {
                           if (commitErr) {
@@ -635,15 +745,16 @@ router.post('/fechar', verificarToken, (req, res) => {
                             usuario_nome: operadorNome,
                             modulo: 'caixa',
                             acao: 'fechar_caixa',
-                            referencia_tipo: 'caixa',
-                            referencia_id: caixa.id,
-                            detalhes: { valor_informado: valorInformado, diferenca, observacao },
+                            referencia_tipo: 'caixa_sessao',
+                            referencia_id: sessao.id,
+                            detalhes: { valor_informado: valorInformado, diferenca, observacao, caixa_id: caixa.id },
                             ip_requisicao: req.ip || null
                           }).catch((auditErr) => console.error('Erro ao gravar auditoria de fechamento de caixa:', auditErr));
 
                           res.json({
                             message: 'Caixa fechado com sucesso.',
                             caixa_id: caixa.id,
+                            sessao_id: sessao.id,
                             operador: operadorNome,
                             detalhes: {
                               ...detalhes,
@@ -652,43 +763,48 @@ router.post('/fechar', verificarToken, (req, res) => {
                             }
                           });
                         });
+                      });
                     });
                   });
                 });
               });
             });
           });
-        }
-      );
+        });
+      });
     }
   );
 });
 
 // Função para calcular fechamento detalhado com todas as formas de pagamento
-function calcularFechamentoDetalhado(caixa, callback) {
+function calcularFechamentoDetalhado(caixa, options = {}, callback) {
   const data = caixa.data;
+  const sessaoId = options.sessaoId || null;
+
+  const vendasWhere = 'caixa_sessao_id = ?';
 
   db.all(`
     SELECT forma_pagamento, SUM(total) AS total
     FROM vendas
     WHERE status = 'concluida'
-      AND caixa_id = ?
+      AND ${vendasWhere}
     GROUP BY forma_pagamento
-  `, [caixa.id], (err, vendas) => {
+  `, [sessaoId], (err, vendas) => {
     if (err) return callback(err);
 
-    db.get(`
-      SELECT SUM(valor) AS total_sangrias
-      FROM caixa_movimentacoes
-      WHERE caixa_id = ? AND tipo = 'sangria'
-    `, [caixa.id], (err2, sangriasRow) => {
+      const whereMov = 'sessao_id = ?';
+      db.get(`
+        SELECT SUM(valor) AS total_sangrias
+        FROM caixa_movimentacoes
+        WHERE ${whereMov} AND tipo = 'sangria'
+      `, [sessaoId], (err2, sangriasRow) => {
       if (err2) return callback(err2);
 
-      db.get(`
-        SELECT SUM(valor) AS total_suprimentos
-        FROM caixa_movimentacoes
-        WHERE caixa_id = ? AND tipo = 'suprimento'
-      `, [caixa.id], (err3, suprimentosRow) => {
+        db.get(`
+          SELECT SUM(valor) AS total_suprimentos
+          FROM caixa_movimentacoes
+          WHERE ${whereMov} AND tipo = 'suprimento'
+        `, [sessaoId], (err3, suprimentosRow) => {
         if (err3) return callback(err3);
 
         let vendasDinheiro = 0;
@@ -746,123 +862,59 @@ function obterDetalhesCaixa(caixaId, callback) {
     if (err) return callback(err);
     if (!caixa) return callback(null, null);
 
-    db.get(
-      `SELECT * FROM caixa_fechamentos WHERE caixa_id = ? ORDER BY id DESC LIMIT 1`,
-      [caixaId],
-      (fechErr, fechamento) => {
-        if (fechErr) return callback(fechErr);
+    db.get(`SELECT id FROM caixa_sessoes WHERE caixa_id = ? ORDER BY id DESC LIMIT 1`, [caixaId], (sErr, sRow) => {
+      if (sErr) return callback(sErr);
 
-        db.all(
-          `SELECT cm.*, u.nome as usuario_nome FROM caixa_movimentacoes cm LEFT JOIN usuarios u ON u.id = cm.usuario_id WHERE cm.caixa_id = ? ORDER BY cm.id DESC`,
-          [caixaId],
-          (movErr, movimentacoes) => {
+      if (!sRow) {
+        // sem sessão: retornar sem movimentações/auditoria
+        return callback(null, {
+          caixa,
+          fechamento: null,
+          movimentacoes: [],
+          auditoria: []
+        });
+      }
+
+      const sessaoId = sRow.id;
+
+      db.get(
+        `SELECT * FROM caixa_fechamentos WHERE sessao_id = ? ORDER BY id DESC LIMIT 1`,
+        [sessaoId],
+        (fechErr, fechamento) => {
+          if (fechErr) return callback(fechErr);
+
+          db.all(`SELECT cm.*, u.nome as usuario_nome FROM caixa_movimentacoes cm LEFT JOIN usuarios u ON u.id = cm.usuario_id WHERE cm.sessao_id = ? ORDER BY cm.id DESC`, [sessaoId], (movErr, movimentacoes) => {
             if (movErr) return callback(movErr);
 
-            db.all(
-              `SELECT * FROM auditoria_caixa WHERE caixa_id = ? ORDER BY criado_em DESC`,
-              [caixaId],
-              (auditErr, auditoria) => {
-                if (auditErr) return callback(auditErr);
+            db.all(`SELECT * FROM auditoria_caixa WHERE sessao_id = ? ORDER BY criado_em DESC`, [sessaoId], (auditErr, auditoria) => {
+              if (auditErr) return callback(auditErr);
 
-                callback(null, {
-                  caixa,
-                  fechamento: fechamento || null,
-                  movimentacoes: movimentacoes || [],
-                  auditoria: auditoria || []
-                });
-              }
-            );
-          }
-        );
-      }
-    );
+              callback(null, {
+                caixa,
+                fechamento: fechamento || null,
+                movimentacoes: movimentacoes || [],
+                auditoria: auditoria || []
+              });
+            });
+          });
+        }
+      );
+    });
   });
 }
 
 router.get('/fechamento/:caixa_id', (req, res) => {
   const caixaId = Number(req.params.caixa_id);
 
-  obterDetalhesCaixa(caixaId, (err, resultado) => {
+  obterDetalhesCaixa(caixaId, (err, detalhes) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (!resultado) return res.status(404).json({ error: 'Caixa não encontrado.' });
-    res.json(resultado);
-  });
-});
+    if (!detalhes) return res.status(404).json({ error: 'Caixa não encontrado.' });
 
-router.post('/:caixa_id/reimprimir', verificarToken, (req, res) => {
-  const caixaId = Number(req.params.caixa_id);
-  const operadorId = req.user?.id || null;
-  const operadorNome = req.user?.nome || req.user?.username || 'Desconhecido';
-
-  db.get(`SELECT * FROM caixa WHERE id = ?`, [caixaId], (err, caixa) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!caixa) return res.status(404).json({ error: 'Caixa não encontrado.' });
-    if (caixa.status !== 'fechado') {
-      return res.status(400).json({ error: 'Somente caixas fechados podem ser reimpressos.' });
-    }
-
-    db.serialize(() => {
-      db.run('BEGIN TRANSACTION');
-
-      db.run(
-        `UPDATE caixa SET ja_reimpresso = COALESCE(ja_reimpresso, 0) + 1 WHERE id = ?`,
-        [caixaId],
-        (updateErr) => {
-          if (updateErr) {
-            db.run('ROLLBACK');
-            return res.status(500).json({ error: updateErr.message });
-          }
-
-          db.run(
-            `INSERT INTO auditoria_caixa (
-              caixa_id,
-              operador_id,
-              acao,
-              tipo_movimentacao,
-              valor,
-              detalhes,
-              ip_requisicao
-            ) VALUES (?, ?, 'reimpressao', 'fechamento', ?, ?, ?)`,
-            [
-              caixaId,
-              operadorId,
-              caixa.valor_fechamento || 0,
-              JSON.stringify({ operador: operadorNome, motivo: 'Reimpressão de fechamento' }),
-              req.ip || null
-            ],
-              (auditErr) => {
-                if (auditErr) console.error('Erro ao registrar auditoria de reimpressão:', auditErr);
-
-                db.run('COMMIT', (commitErr) => {
-                  if (commitErr) {
-                    db.run('ROLLBACK');
-                    return res.status(500).json({ error: commitErr.message });
-                  }
-
-                  // auditoria centralizada de reimpressão
-                  gravarAuditoria({
-                    usuario_id: operadorId,
-                    usuario_nome: operadorNome,
-                    modulo: 'caixa',
-                    acao: 'reimpressao_fechamento',
-                    referencia_tipo: 'caixa',
-                    referencia_id: caixaId,
-                    detalhes: { motivo: 'Reimpressão de fechamento' },
-                    ip_requisicao: req.ip || null
-                  }).catch((auditErr) => console.error('Erro ao gravar auditoria de reimpressão:', auditErr));
-
-                  obterDetalhesCaixa(caixaId, (detErr, resultado) => {
-                    if (detErr) return res.status(500).json({ error: detErr.message });
-                    res.json({
-                      message: 'Reimpressão registrada.',
-                      resultado
-                    });
-                  });
-                });
-            }
-          );
-        }
-      );
+    res.json({
+      caixa: detalhes.caixa,
+      fechamento: detalhes.fechamento,
+      movimentacoes: detalhes.movimentacoes,
+      auditoria: detalhes.auditoria
     });
   });
 });
@@ -881,17 +933,20 @@ router.get('/historico', (req, res) => {
   });
 });
 
-router.get('/movimentacoes/:caixa_id', (req, res) => {
+router.get('/movimentacoes/:caixa_id', validarCaixaAberto, (req, res) => {
+  const sessaoId = req.caixaSessaoId;
+  if (!sessaoId) return res.status(400).json({ error: 'Nenhuma sessão de caixa aberta para este terminal.' });
+
   db.all(`
-    SELECT cm.*, u.nome as usuario_nome
-    FROM caixa_movimentacoes cm
-    LEFT JOIN usuarios u ON u.id = cm.usuario_id
-    WHERE cm.caixa_id = ?
-    ORDER BY cm.id DESC
-  `, [req.params.caixa_id], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows || []);
-  });
+      SELECT cm.*, u.nome as usuario_nome
+      FROM caixa_movimentacoes cm
+      LEFT JOIN usuarios u ON u.id = cm.usuario_id
+      WHERE cm.sessao_id = ?
+      ORDER BY cm.id DESC
+    `, [sessaoId], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows || []);
+    });
 });
 
 router.get('/por-data', (req, res) => {
@@ -924,45 +979,45 @@ router.get('/por-data', (req, res) => {
     let processados = 0;
 
     caixas.forEach((caixa) => {
-      calcularResumoCaixa(caixa, (calcErr, resumo) => {
-        if (calcErr) {
-          return res.status(500).json({
-            sucesso: false,
-            mensagem: calcErr.message
-          });
+      // Resolver última sessão e calcular resumo por sessão
+      db.get(`SELECT id FROM caixa_sessoes WHERE caixa_id = ? ORDER BY id DESC LIMIT 1`, [caixa.id], (sErr, sRow) => {
+        if (sErr) {
+          return res.status(500).json({ sucesso: false, mensagem: sErr.message });
         }
 
-        db.all(`
-          SELECT
-            cm.*,
-            u.nome as usuario_nome
-          FROM caixa_movimentacoes cm
-          LEFT JOIN usuarios u ON u.id = cm.usuario_id
-          WHERE cm.caixa_id = ?
-          ORDER BY cm.id DESC
-        `, [caixa.id], (movErr, movimentacoes) => {
-          if (movErr) {
-            return res.status(500).json({
-              sucesso: false,
-              mensagem: movErr.message
-            });
+        const sessaoId = sRow ? sRow.id : null;
+
+        calcularResumoCaixa(caixa, { sessaoId }, (calcErr, resumo) => {
+          if (calcErr) {
+            return res.status(500).json({ sucesso: false, mensagem: calcErr.message });
           }
 
-          resultado.push({
-            caixa,
-            resumo,
-            movimentacoes: movimentacoes || []
+          if (!sessaoId) {
+            resultado.push({ caixa, resumo, movimentacoes: [] });
+            processados++;
+            if (processados === caixas.length) {
+              res.json({ sucesso: true, data, caixas: resultado });
+            }
+            return;
+          }
+
+          db.all(`
+            SELECT cm.*, u.nome as usuario_nome
+            FROM caixa_movimentacoes cm
+            LEFT JOIN usuarios u ON u.id = cm.usuario_id
+            WHERE cm.sessao_id = ?
+            ORDER BY cm.id DESC
+          `, [sessaoId], (movErr, movimentacoes) => {
+            if (movErr) return res.status(500).json({ sucesso: false, mensagem: movErr.message });
+
+            resultado.push({ caixa, resumo, movimentacoes: movimentacoes || [] });
+
+            processados++;
+
+            if (processados === caixas.length) {
+              res.json({ sucesso: true, data, caixas: resultado });
+            }
           });
-
-          processados++;
-
-          if (processados === caixas.length) {
-            res.json({
-              sucesso: true,
-              data,
-              caixas: resultado
-            });
-          }
         });
       });
     });

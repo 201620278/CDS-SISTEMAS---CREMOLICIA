@@ -1518,6 +1518,7 @@ function adicionarFaixaPrompt(produtoId) {
             <td><input type="number" min="0" step="0.01" class="form-control form-control-sm input-percentual" placeholder="% Atacado"></td>
             <td><input type="text" class="form-control form-control-sm input-preco" placeholder="Preço atacado"></td>
             <td class="text-end">
+                <button type="button" class="btn btn-sm btn-success btn-salvar-nova me-1">Salvar faixa</button>
                 <button type="button" class="btn btn-sm btn-secondary btn-cancelar-nova">Cancelar</button>
             </td>
         </tr>
@@ -1531,24 +1532,20 @@ function adicionarFaixaPrompt(produtoId) {
 
     // salvar ao pressionar Enter na linha ou ao sair do campo de preço; Esc cancela (remove a linha)
     function salvarNova() {
-        const q = parseInt(tr.find('.input-quantidade').val(), 10);
-        const percentual = parseNumero(tr.find('.input-percentual').val());
-        const precoStr = tr.find('.input-preco').val() || '';
-        const precoManual = parseFloat(precoStr.replace(',', '.'));
-        let preco = (!isNaN(precoManual) && precoManual > 0) ? precoManual : 0;
-        if ((!preco || preco <= 0) && percentual > 0) {
-            preco = obterPrecoPorPercentual(percentual);
+        const dados = extrairDadosFaixaLinha(tr);
+        if (!dados) {
+            showNotification('Informe quantidade mínima e percentual/preço válidos.', 'warning');
+            return;
         }
-        if (!q || q <= 0) { showNotification('Quantidade inválida', 'warning'); return; }
-        if (isNaN(preco) || preco <= 0) { showNotification('Preço inválido', 'warning'); return; }
 
         const pid = tr.data('produto-id');
         if (!pid) {
             const faixasTemp = $('#produtoModal').data('faixasTemp') || [];
-            faixasTemp.push({ quantidade_minima: q, preco_atacado: preco });
+            faixasTemp.push(dados);
             $('#produtoModal').data('faixasTemp', faixasTemp);
+            tr.remove();
             renderFaixasAtacado(null);
-            showNotification('Faixa adicionada localmente. Salve o produto para persistir.', 'success');
+            showNotification('Faixa adicionada. Salve o produto para persistir.', 'success');
             return;
         }
 
@@ -1558,7 +1555,7 @@ function adicionarFaixaPrompt(produtoId) {
             global: false,
             headers: { Authorization: 'Bearer ' + (localStorage.getItem('token') || '') },
             contentType: 'application/json',
-            data: JSON.stringify({ quantidade_minima: q, preco_atacado: preco }),
+            data: JSON.stringify(dados),
             success: function() {
                 renderFaixasAtacado(pid);
                 showNotification('Faixa adicionada com sucesso', 'success');
@@ -1585,13 +1582,12 @@ function adicionarFaixaPrompt(produtoId) {
         }
     });
 
-    tr.find('.btn-cancelar-nova').on('click', function() {
-        tr.remove();
+    tr.find('.btn-salvar-nova').on('click', function() {
+        salvarNova();
     });
 
-    tr.find('.input-preco').on('blur', function() {
-        // salvar ao sair do campo de preço
-        salvarNova();
+    tr.find('.btn-cancelar-nova').on('click', function() {
+        tr.remove();
     });
 }
 
@@ -1696,10 +1692,6 @@ function editarFaixaPromptTemp(index) {
             $tr.html(originalHtml);
         }
     });
-
-    $tr.find('.input-preco').on('blur', function() {
-        salvarEdicaoTemp();
-    });
 }
 
 function excluirFaixaTemp(index) {
@@ -1747,6 +1739,73 @@ function obterPrecoPorPercentual(percentual) {
     const precoVenda = parseNumero($('#preco_venda').val());
     if (precoVenda <= 0) return 0;
     return precoVenda * (1 - (parseNumero(percentual) / 100));
+}
+
+function extrairDadosFaixaLinha($tr) {
+    const q = parseInt($tr.find('.input-quantidade').val(), 10);
+    const percentual = parseNumero($tr.find('.input-percentual').val());
+    const precoStr = $tr.find('.input-preco').val() || '';
+    const precoManual = parseFloat(String(precoStr).replace(',', '.'));
+    let preco = (!isNaN(precoManual) && precoManual > 0) ? precoManual : 0;
+
+    if ((!preco || preco <= 0) && percentual > 0) {
+        preco = obterPrecoPorPercentual(percentual);
+    }
+
+    if (!q || q <= 0 || isNaN(preco) || preco <= 0) {
+        return null;
+    }
+
+    return {
+        quantidade_minima: q,
+        preco_atacado: Number(preco.toFixed(2))
+    };
+}
+
+async function commitFaixaAtacadoPendente(produtoId) {
+    const $tr = $('#tabelaAtacado tr[data-editing="nova"]');
+    if (!$tr.length) {
+        return true;
+    }
+
+    const dados = extrairDadosFaixaLinha($tr);
+    if (!dados) {
+        showNotification('Informe quantidade mínima e percentual/preço da faixa de atacado.', 'warning');
+        return false;
+    }
+
+    if (!produtoId) {
+        const faixasTemp = $('#produtoModal').data('faixasTemp') || [];
+        faixasTemp.push(dados);
+        $('#produtoModal').data('faixasTemp', faixasTemp);
+        $tr.remove();
+        return true;
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/produtos/${produtoId}/atacado`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: 'Bearer ' + (localStorage.getItem('token') || '')
+            },
+            body: JSON.stringify(dados)
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            showNotification(err.error || 'Erro ao salvar faixa de atacado.', 'danger');
+            return false;
+        }
+
+        $tr.remove();
+        renderFaixasAtacado(String(produtoId));
+        return true;
+    } catch (error) {
+        console.error('Erro ao salvar faixa de atacado pendente:', error);
+        showNotification('Erro ao salvar faixa de atacado.', 'danger');
+        return false;
+    }
 }
 
 function fixarEventosFaixaRow($row) {
@@ -1885,8 +1944,15 @@ function inicializarCalculoPreco(produto, isEdit) {
 
 
 // Salva produto
-function saveProduto() {
+async function saveProduto() {
     const id = $('#produtoId').val();
+
+    if ($('#venda_atacado').is(':checked')) {
+        const faixaSalva = await commitFaixaAtacadoPendente(id || null);
+        if (!faixaSalva) {
+            return;
+        }
+    }
 
     const data = {
         codigo: ($('#codigo').val() || '').trim(),
@@ -1980,7 +2046,7 @@ function saveProduto() {
     const method = id ? 'PUT' : 'POST';
     // incluir faixas temporárias (se houver) para salvar junto com o produto
     const faixasTemp = $('#produtoModal').data('faixasTemp');
-    if (Array.isArray(faixasTemp) && faixasTemp.length > 0) {
+    if (!id && Array.isArray(faixasTemp) && faixasTemp.length > 0) {
         data.atacado_faixas = faixasTemp;
     }
 
@@ -2440,7 +2506,8 @@ async function abrirModalGerarSugestoesAvancado() {
                         </div>
 
                         <small class="form-text text-muted d-block mt-2">
-                            <strong id="qtdProdutosSelecionados">0</strong> produtos selecionados
+                            <strong id="qtdProdutosSelecionados">0</strong> produtos selecionados.
+                            Elegíveis por validade (até 7 dias) ou giro baixo (15+ dias sem venda).
                         </small>
                     </div>
 
@@ -2472,20 +2539,43 @@ async function abrirModalGerarSugestoesAvancado() {
     const modal = new bootstrap.Modal(document.getElementById('modalGerarSugestoesAvancado'));
     modal.show();
 
-    // Carregar lista de produtos com validade
-    await carregarProdutosComValidade();
+    // Carregar produtos elegíveis para promoção (validade + giro)
+    await carregarProdutosElegiveisPromocao();
 }
 
 window.abrirModalGerarSugestoesAvancado = abrirModalGerarSugestoesAvancado;
 
+function montarDetalheProdutoElegivel(produto) {
+    if (Number(produto.controlar_validade) === 1 && Number.isFinite(Number(produto.dias_para_vencer))) {
+        const dias = Number(produto.dias_para_vencer);
+        if (dias < 0) {
+            return `Validade: venceu há ${Math.abs(dias)} dia(s)`;
+        }
+        if (dias === 0) {
+            return 'Validade: vence hoje';
+        }
+        return `Validade: ${dias} dia(s) para vencer`;
+    }
+
+    if (Number.isFinite(Number(produto.dias_sem_venda))) {
+        return `Sem venda há ${produto.dias_sem_venda} dia(s)`;
+    }
+
+    if (String(produto.motivo || '').includes('Nunca Vendeu')) {
+        return 'Nunca vendido';
+    }
+
+    return 'Elegível para promoção';
+}
+
 /**
- * Carrega produtos com validade para seleção
+ * Carrega produtos elegíveis para sugestão (validade ou giro baixo)
  */
-async function carregarProdutosComValidade() {
+async function carregarProdutosElegiveisPromocao() {
     const container = $('#listaProdutosAvancado');
 
     try {
-        const response = await fetch(`${API_URL}/produtos`, {
+        const response = await fetch(`${API_URL}/produtos/promocoes/produtos-elegiveis`, {
             method: 'GET',
             headers: {
                 Authorization: 'Bearer ' + (localStorage.getItem('token') || '')
@@ -2493,47 +2583,39 @@ async function carregarProdutosComValidade() {
         });
 
         if (!response.ok) {
-            throw new Error('Erro ao carregar produtos');
+            throw new Error('Erro ao carregar produtos elegíveis');
         }
 
-        const produtos = await response.json();
+        const produtosElegiveis = await response.json();
 
-        // Filtrar apenas produtos com validade próxima
-        const produtosComValidade = produtos.filter(p => 
-            p.controlar_validade === 1 && 
-            p.data_validade && 
-            p.data_validade !== '' &&
-            p.estoque_atual > 0
-        );
-
-        if (produtosComValidade.length === 0) {
+        if (!produtosElegiveis || produtosElegiveis.length === 0) {
             container.html(`
                 <div class="alert alert-info">
-                    <i class="fas fa-info-circle"></i> Nenhum produto com validade para gerar sugestões.
+                    <i class="fas fa-info-circle"></i> Nenhum produto elegível no momento.
+                    Produtos entram aqui por validade próxima/vencida ou por giro baixo (15+ dias sem venda).
                 </div>
             `);
             return;
         }
 
-        // Criar lista de checkboxes
         let html = '<div class="list-group">';
 
-        produtosComValidade.forEach(p => {
-            const diasParaVencer = Math.floor(
-                (new Date(p.data_validade) - new Date()) / (1000 * 60 * 60 * 24)
-            );
+        produtosElegiveis.forEach(p => {
+            const detalhe = montarDetalheProdutoElegivel(p);
 
             html += `
                 <label class="list-group-item">
                     <div class="d-flex align-items-center">
                         <input type="checkbox" class="form-check-input me-3 checkbox-produto-avancado" 
-                            value="${p.id}" data-nome="${p.nome}" data-preco="${p.preco_venda}">
+                            value="${p.id}" data-nome="${escapeHtml(p.nome)}" data-preco="${p.preco_venda}">
                         <div class="flex-grow-1">
-                            <div><strong>${escapeHtml(p.nome)}</strong></div>
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <strong>${escapeHtml(p.nome)}</strong>
+                                ${formatarBadgeMotivoSugestao(p.motivo)}
+                            </div>
                             <small class="text-muted">
-                                Validade: ${new Date(p.data_validade).toLocaleDateString('pt-BR')} 
-                                (${diasParaVencer} dias) | 
-                                Estoque: ${p.estoque_atual} | 
+                                ${escapeHtml(detalhe)} |
+                                Estoque: ${p.estoque_atual} |
                                 Preço: ${formatCurrency(p.preco_venda || 0)}
                             </small>
                         </div>
@@ -2545,16 +2627,23 @@ async function carregarProdutosComValidade() {
         html += '</div>';
         container.html(html);
 
-        // Adicionar event listener para atualizar contador
         $('.checkbox-produto-avancado').on('change', atualizarContadorProdutosSelecionados);
+        atualizarContadorProdutosSelecionados();
     } catch (error) {
-        console.error('Erro ao carregar produtos:', error);
+        console.error('Erro ao carregar produtos elegíveis:', error);
         container.html(`
             <div class="alert alert-danger">
-                <i class="fas fa-exclamation-circle"></i> Erro ao carregar produtos.
+                <i class="fas fa-exclamation-circle"></i> Erro ao carregar produtos elegíveis.
             </div>
         `);
     }
+}
+
+window.carregarProdutosElegiveisPromocao = carregarProdutosElegiveisPromocao;
+
+/** @deprecated Use carregarProdutosElegiveisPromocao */
+async function carregarProdutosComValidade() {
+    return carregarProdutosElegiveisPromocao();
 }
 
 window.carregarProdutosComValidade = carregarProdutosComValidade;
@@ -2627,7 +2716,10 @@ async function gerarSugestoesAvancado() {
         }
 
         const resultado = await response.json();
-        showNotification(`${resultado.message || resultado.total + ' sugestões geradas com sucesso!'}`, 'success');
+        showNotification(
+            resultado.message || `${resultado.total} sugestão(ões) gerada(s).`,
+            resultado.total > 0 ? 'success' : 'info'
+        );
         
         // Fechar modal
         bootstrap.Modal.getInstance(document.getElementById('modalGerarSugestoesAvancado')).hide();
@@ -2642,6 +2734,56 @@ async function gerarSugestoesAvancado() {
 }
 
 window.gerarSugestoesAvancado = gerarSugestoesAvancado;
+
+function formatarBadgeMotivoSugestao(motivo) {
+    const texto = String(motivo || '-');
+    let badgeClass = 'bg-secondary';
+
+    if (texto.startsWith('🔴')) badgeClass = 'bg-danger';
+    else if (texto.startsWith('🟠')) badgeClass = 'bg-warning text-dark';
+    else if (texto.startsWith('🟡')) badgeClass = 'bg-warning text-dark';
+    else if (texto.startsWith('⚫')) badgeClass = 'bg-dark';
+
+    return `<span class="badge ${badgeClass}">${escapeHtml(texto)}</span>`;
+}
+
+function ehMotivoValidade(motivo) {
+    const texto = String(motivo || '');
+    return texto.includes('Vence') || texto.includes('Vencido') || texto === 'vencimento_proximo';
+}
+
+function formatarInfoValidadeSugestao(sugestao) {
+    const dias = Number(sugestao.dias_para_vencer);
+
+    if (!Number.isFinite(dias)) return '';
+
+    if (dias < 0) {
+        return `<br><small class="text-muted">Venceu há ${Math.abs(dias)} dia(s)</small>`;
+    }
+
+    if (dias === 0) {
+        return '<br><small class="text-muted">Vence hoje</small>';
+    }
+
+    return `<br><small class="text-muted">${dias} dia(s) para vencer</small>`;
+}
+
+function formatarInfoSugestao(sugestao) {
+    if (ehMotivoValidade(sugestao.motivo)) {
+        return formatarInfoValidadeSugestao(sugestao);
+    }
+
+    const diasSemVenda = Number(sugestao.dias_sem_venda);
+    if (Number.isFinite(diasSemVenda)) {
+        return `<br><small class="text-muted">Sem venda há ${diasSemVenda} dia(s)</small>`;
+    }
+
+    if (String(sugestao.motivo || '').includes('Nunca Vendeu')) {
+        return '<br><small class="text-muted">Nunca vendido</small>';
+    }
+
+    return '';
+}
 
 /**
  * Carrega sugestões de promoções
@@ -2666,8 +2808,10 @@ async function carregarSugestoesPromocoes(autoGerar = false) {
 
         if (!sugestoes || sugestoes.length === 0) {
             if (autoGerar) {
-                await gerarSugestoesPromocoes({ silent: true });
-                return carregarSugestoesPromocoes(false);
+                const resultado = await gerarSugestoesPromocoes({ silent: true });
+                if (resultado?.total > 0) {
+                    return carregarSugestoesPromocoes(false);
+                }
             }
 
             container.html(`
@@ -2696,14 +2840,14 @@ async function carregarSugestoesPromocoes(autoGerar = false) {
 
         sugestoes.forEach(s => {
             const desconto = Number(s.desconto_percentual || 0).toFixed(2);
-            const diasInfo = s.dias_para_vencer ? `<br><small class="text-muted">${s.dias_para_vencer} dias para vencer</small>` : '';
+            const diasInfo = formatarInfoSugestao(s);
             html += `
                 <tr>
                     <td>
                         <strong>${escapeHtml(s.nome_produto || '-')}</strong>
                         ${diasInfo}
                     </td>
-                    <td><span class="badge bg-warning">${s.motivo.replace(/_/g, ' ')}</span></td>
+                    <td>${formatarBadgeMotivoSugestao(s.motivo)}</td>
                     <td>${escapeHtml(s.estoque_atual || 0)}</td>
                     <td>${formatCurrency(s.preco_atual || 0)}</td>
                     <td><span class="badge bg-danger">${desconto}%</span></td>
@@ -3191,7 +3335,7 @@ async function gerarSugestoesPromocoes(options = { silent: false }) {
 
         const resultado = await response.json();
         if (!options.silent) {
-            showNotification(`${resultado.message}`, 'success');
+            showNotification(resultado.message || `${resultado.total} sugestão(ões) gerada(s).`, resultado.total > 0 ? 'success' : 'info');
         }
 
         if (!options.silent) {
@@ -3270,19 +3414,23 @@ function montarListaEstoqueBaixoProdutos(criticos, proximos) {
     return '<div class="text-muted">Nenhum alerta de estoque no momento.</div>';
   }
 
-  let html = '<div class="table-responsive">';
+  let html = '<div class="d-flex flex-column gap-2">';
 
   if (listaCriticos.length) {
     html += `
-      <p class="small text-danger fw-semibold mb-1">Estoque no mínimo ou abaixo (${listaCriticos.length})</p>
-      ${montarTabelaEstoqueResumo(listaCriticos, 'table-danger')}
+      <div class="d-flex justify-content-between align-items-center">
+        <span class="text-danger fw-semibold">Estoque no mínimo ou abaixo (${listaCriticos.length})</span>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="carregarRelatorioEstoqueProdutos('estoque_baixo')">Ver todos</button>
+      </div>
     `;
   }
 
   if (listaProximos.length) {
     html += `
-      <p class="small text-warning-emphasis fw-semibold mb-1 mt-3">Próximo do mínimo (${listaProximos.length})</p>
-      ${montarTabelaEstoqueResumo(listaProximos, 'table-warning')}
+      <div class="d-flex justify-content-between align-items-center">
+        <span class="text-warning-emphasis fw-semibold">Próximo do mínimo (${listaProximos.length})</span>
+        <button type="button" class="btn btn-sm btn-outline-warning" onclick="carregarRelatorioEstoqueProdutos('proximo_minimo')">Ver todos</button>
+      </div>
     `;
   }
 

@@ -64,11 +64,15 @@ async function getFiscalConfig() {
     'fiscal_emitente_bairro'
   ]);
 
+  console.log('[FISCAL CONFIG] Configurações carregadas:', JSON.stringify(cfg, null, 2));
+
   if (!cfg.fiscal_ambiente) {
     throw new Error('Ambiente fiscal não configurado. Selecione Produção ou Homologação.');
   }
 
   const ambienteFiscal = Number(cfg.fiscal_ambiente);
+
+  console.log('[FISCAL CONFIG] Ambiente fiscal:', ambienteFiscal);
 
   if (![1, 2].includes(ambienteFiscal)) {
     throw new Error('Ambiente fiscal inválido. Escolha 1 Produção ou 2 Homologação.');

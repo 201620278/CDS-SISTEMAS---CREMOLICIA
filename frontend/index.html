@@ -73,7 +73,7 @@
                                 <i class="fas fa-tags"></i> Categorias
                             </a>
                         </li>
-                        <li class="nav-item">
+                        <li class="nav-item" data-recurso="fiscal">
                             <a class="nav-link text-white" href="#" data-page="fiscal">
                                 <i class="fas fa-receipt"></i> Fiscal NFC-e
                             </a>
@@ -93,7 +93,12 @@
                                 <i class="fas fa-cog"></i> Configurações
                             </a>
                         </li>
-                        <li class="nav-item">
+                        <li class="nav-item" id="nav-config-avancadas" data-recurso="configAvancadas">
+                            <a class="nav-link text-white" href="#" data-page="configuracoes-avancadas">
+                                <i class="fas fa-tools"></i> Configurações Avançadas
+                            </a>
+                        </li>
+                        <li class="nav-item" data-recurso="multiCaixa">
                             <a class="nav-link text-white" href="#" data-page="caixas">
                                 <i class="fas fa-cash-register"></i> Gerenciar Caixas
                             </a>
@@ -145,8 +150,8 @@
     <script src="js/financeiro-pagar.js"></script>
     <script src="js/financeiro-relatorios.js"></script>
     <script src="js/financeiro.js"></script>
-    <script src="js/backup_google.js"></script>
     <script src="js/configuracoes.js"></script>
+    <script src="js/configuracao_tef.js"></script>
     <script src="js/categorias.js"></script>
     <script src="js/fiscal.js"></script>
     <script src="js/caixa.js"></script>
@@ -202,6 +207,13 @@
                 method: 'POST',
                 success: function(data) {
                     console.log('Token válido:', data);
+                    try {
+                        if (typeof carregarConfiguracaoImplantacao === 'function') {
+                            carregarConfiguracaoImplantacao();
+                        } else if (typeof filtrarMenuPorPermissoes === 'function') {
+                            filtrarMenuPorPermissoes();
+                        }
+                    } catch(e) { console.error(e); }
                 },
                 error: function(xhr) {
                     console.log('Token inválido:', xhr);

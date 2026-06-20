@@ -79,6 +79,11 @@ function aplicarAlteracoesPosCriacao() {
   aplicarAlteracaoSegura('vendas', `ALTER TABLE vendas ADD COLUMN terminal_id INTEGER REFERENCES terminais(id)`);
   aplicarAlteracaoSegura('vendas', `ALTER TABLE vendas ADD COLUMN operador_id INTEGER REFERENCES usuarios(id)`);
   aplicarAlteracaoSegura('caixa_movimentacoes', `ALTER TABLE caixa_movimentacoes ADD COLUMN terminal_id INTEGER`);
+  aplicarAlteracaoSegura('vendas', `ALTER TABLE vendas ADD COLUMN caixa_sessao_id INTEGER REFERENCES caixa_sessoes(id)`);
+  aplicarAlteracaoSegura('caixa_movimentacoes', `ALTER TABLE caixa_movimentacoes ADD COLUMN sessao_id INTEGER REFERENCES caixa_sessoes(id)`);
+  aplicarAlteracaoSegura('caixa_fechamentos', `ALTER TABLE caixa_fechamentos ADD COLUMN sessao_id INTEGER REFERENCES caixa_sessoes(id)`);
+  aplicarAlteracaoSegura('auditoria_caixa', `ALTER TABLE auditoria_caixa ADD COLUMN sessao_id INTEGER REFERENCES caixa_sessoes(id)`);
+  aplicarAlteracaoSegura('auditoria_caixa', `ALTER TABLE auditoria_caixa ADD COLUMN terminal_id INTEGER REFERENCES terminais(id)`);
 
   // Adicionar colunas faltantes na tabela vendas_itens (para suportar promoções e desconto atacado)
   aplicarAlteracaoSegura('vendas_itens', `ALTER TABLE vendas_itens ADD COLUMN desconto_percentual DECIMAL(5,2) DEFAULT 0`);
@@ -102,8 +107,8 @@ function aplicarAlteracoesPosCriacao() {
   aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN fechado_por INTEGER REFERENCES usuarios(id)`);
   aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN ja_reimpresso INTEGER DEFAULT 0`);
   aplicarAlteracaoSegura('caixa', `ALTER TABLE caixa ADD COLUMN reoperturas_count INTEGER DEFAULT 0`);
-  aplicarAlteracaoSegura('caixas', `ALTER TABLE caixas ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
-  aplicarAlteracaoSegura('caixas', `ALTER TABLE caixas ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
+  aplicarAlteracaoSegura('caixas', `ALTER TABLE caixas ADD COLUMN created_at DATETIME`);
+  aplicarAlteracaoSegura('caixas', `ALTER TABLE caixas ADD COLUMN updated_at DATETIME`);
   aplicarAlteracaoSegura('caixa_movimentacoes', `ALTER TABLE caixa_movimentacoes ADD COLUMN operador_nome TEXT`);
 
   // Adicionar colunas na tabela usuarios
@@ -132,6 +137,7 @@ function aplicarAlteracoesPosCriacao() {
     `ALTER TABLE produtos ADD COLUMN aliquota_cofins REAL DEFAULT 0`,
     `ALTER TABLE produtos ADD COLUMN lucro_percentual DECIMAL(10,2)`
     , `ALTER TABLE produtos ADD COLUMN venda_atacado INTEGER DEFAULT 0`
+    , `ALTER TABLE produtos ADD COLUMN ativo INTEGER DEFAULT 1`
   ];
 
   const alteracoesCompras = [
@@ -154,6 +160,7 @@ function aplicarAlteracoesPosCriacao() {
     `ALTER TABLE compras ADD COLUMN valor_total_nota DECIMAL(10,2) DEFAULT 0`,
     `ALTER TABLE compras ADD COLUMN cancelada_em DATETIME`,
     `ALTER TABLE compras ADD COLUMN motivo_cancelamento TEXT`,
+    `ALTER TABLE compras ADD COLUMN nota_fiscal_avulsa INTEGER DEFAULT 0`,
     `ALTER TABLE compras ADD COLUMN total_xml DECIMAL(10,2) DEFAULT 0`,
     `ALTER TABLE compras ADD COLUMN total_itens_calculado DECIMAL(10,2) DEFAULT 0`,
     `ALTER TABLE compras ADD COLUMN diferenca_total DECIMAL(10,2) DEFAULT 0`,
@@ -262,6 +269,156 @@ function criarTabelas() {
         descricao TEXT,
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Add columns to tef_configuracoes if they don't exist
+    db.run(`
+      ALTER TABLE tef_configuracoes
+      ADD COLUMN sdk_path TEXT
+    `, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Erro ao adicionar coluna sdk_path:', err);
+      }
+    });
+
+    db.run(`
+      ALTER TABLE tef_configuracoes
+      ADD COLUMN exe_path TEXT
+    `, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Erro ao adicionar coluna exe_path:', err);
+      }
+    });
+
+    db.run(`
+      ALTER TABLE tef_configuracoes
+      ADD COLUMN ip TEXT
+    `, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Erro ao adicionar coluna ip:', err);
+      }
+    });
+
+    db.run(`
+      ALTER TABLE tef_configuracoes
+      ADD COLUMN porta INTEGER
+    `, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Erro ao adicionar coluna porta:', err);
+      }
+    });
+
+    db.run(`
+      ALTER TABLE tef_configuracoes
+      ADD COLUMN ambiente TEXT
+    `, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Erro ao adicionar coluna ambiente:', err);
+      }
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_configuracao (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        habilitado INTEGER DEFAULT 0,
+        provedor TEXT,
+        ambiente TEXT,
+        timeout INTEGER,
+        tentativas INTEGER,
+        empresa_codigo TEXT,
+        loja_codigo TEXT,
+        pdv_codigo TEXT,
+        terminal_codigo TEXT,
+        caixa_codigo TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_servidores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tef_configuracao_id INTEGER,
+        base_url TEXT,
+        ip TEXT,
+        porta INTEGER,
+        client_id TEXT,
+        client_secret TEXT,
+        access_token TEXT,
+        refresh_token TEXT,
+        chave_comunicacao TEXT,
+        operador TEXT,
+        FOREIGN KEY (tef_configuracao_id) REFERENCES tef_configuracao(id)
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_pinpads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tef_configuracao_id INTEGER,
+        habilitado INTEGER,
+        fabricante TEXT,
+        modelo TEXT,
+        tipo_conexao TEXT,
+        porta_com TEXT,
+        ip TEXT,
+        porta INTEGER,
+        serial TEXT,
+        status TEXT,
+        ultima_conexao TEXT,
+        FOREIGN KEY (tef_configuracao_id) REFERENCES tef_configuracao(id)
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_operacoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tef_configuracao_id INTEGER,
+        debito INTEGER,
+        credito_avista INTEGER,
+        credito_parcelado INTEGER,
+        voucher INTEGER,
+        pix INTEGER,
+        cancelamento INTEGER,
+        reimpressao INTEGER,
+        pre_autorizacao INTEGER,
+        confirmacao_manual INTEGER,
+        FOREIGN KEY (tef_configuracao_id) REFERENCES tef_configuracao(id)
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_conciliacoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transacao_id INTEGER,
+        nsu TEXT,
+        autorizacao TEXT,
+        adquirente TEXT,
+        bandeira TEXT,
+        valor DECIMAL(10,2),
+        status TEXT,
+        data_transacao TEXT,
+        data_conciliacao TEXT,
+        diferenca DECIMAL(10,2),
+        observacao TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (transacao_id) REFERENCES tef_transacoes(id)
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_fechamentos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        data_fechamento TEXT,
+        total_transacoes INTEGER,
+        total_valor DECIMAL(10,2),
+        total_aprovado DECIMAL(10,2),
+        total_negado DECIMAL(10,2),
+        total_cancelado DECIMAL(10,2),
+        arquivo_conciliacao TEXT,
+        status TEXT DEFAULT 'pendente',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -837,6 +994,46 @@ function criarTabelas() {
       else console.log('Tabela nfce_notas criada/verificada');
     });
 
+    // Tabela de notas recebidas via Distribuição DF-e
+    db.run(`
+      CREATE TABLE IF NOT EXISTS notas_recebidas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chave TEXT UNIQUE,
+        numero_nf TEXT,
+        fornecedor TEXT,
+        cnpj_fornecedor TEXT,
+        data_emissao TEXT,
+        valor_total REAL,
+        xml TEXT,
+        importada INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela notas_recebidas:', err);
+      else console.log('Tabela notas_recebidas criada/verificada');
+    });
+
+    // Tabela de notas recebidas via DF-e (nova estrutura para distribuição)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS notas_recebidas_dfe (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chave TEXT UNIQUE,
+        numero TEXT,
+        serie TEXT,
+        fornecedor TEXT,
+        cnpj_fornecedor TEXT,
+        data_emissao TEXT,
+        valor_total REAL,
+        xml TEXT,
+        importada INTEGER DEFAULT 0,
+        nsu TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela notas_recebidas_dfe:', err);
+      else console.log('Tabela notas_recebidas_dfe criada/verificada');
+    });
+
     // Tabela de configurações (criar por último)
     db.run(`
       CREATE TABLE IF NOT EXISTS configuracoes (
@@ -1187,10 +1384,31 @@ db.serialize(() => {
     )
   `);
 
+  // Nova tabela de sessões de caixa (multi-caixa profissional)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS caixa_sessoes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      caixa_id INTEGER,
+      terminal_id INTEGER,
+      operador_id INTEGER,
+      valor_abertura DECIMAL(10,2) DEFAULT 0,
+      valor_fechamento DECIMAL(10,2) DEFAULT 0,
+      aberto_em DATETIME,
+      fechado_em DATETIME,
+      status TEXT DEFAULT 'aberto',
+      observacoes TEXT,
+      criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (caixa_id) REFERENCES caixas(id),
+      FOREIGN KEY (terminal_id) REFERENCES terminais(id),
+      FOREIGN KEY (operador_id) REFERENCES usuarios(id)
+    )
+  `);
+
   db.run(`
     CREATE TABLE IF NOT EXISTS caixa_movimentacoes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       caixa_id INTEGER NOT NULL,
+      sessao_id INTEGER,
       tipo TEXT NOT NULL,
       valor DECIMAL(10,2) DEFAULT 0,
       motivo TEXT,
@@ -1199,6 +1417,7 @@ db.serialize(() => {
       terminal_id INTEGER,
       criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (caixa_id) REFERENCES caixa(id),
+      FOREIGN KEY (sessao_id) REFERENCES caixa_sessoes(id),
       FOREIGN KEY (usuario_id) REFERENCES usuarios(id),
       FOREIGN KEY (terminal_id) REFERENCES terminais(id)
     )
@@ -1207,6 +1426,7 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS caixa_fechamentos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sessao_id INTEGER,
       caixa_id INTEGER NOT NULL,
       operador_id INTEGER,
       terminal_id INTEGER,
@@ -1235,16 +1455,20 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS auditoria_caixa (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sessao_id INTEGER,
       caixa_id INTEGER,
       operador_id INTEGER,
+      terminal_id INTEGER,
       acao TEXT NOT NULL,
       tipo_movimentacao TEXT,
       valor DECIMAL(10,2),
       detalhes TEXT,
       ip_requisicao TEXT,
       criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (sessao_id) REFERENCES caixa_sessoes(id),
       FOREIGN KEY (caixa_id) REFERENCES caixa(id),
-      FOREIGN KEY (operador_id) REFERENCES usuarios(id)
+      FOREIGN KEY (operador_id) REFERENCES usuarios(id),
+      FOREIGN KEY (terminal_id) REFERENCES terminais(id)
     )
   `);
 

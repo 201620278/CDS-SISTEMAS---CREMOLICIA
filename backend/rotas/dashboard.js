@@ -4,6 +4,7 @@ const db = require('../database');
 const fs = require('fs');
 const path = require('path');
 const { listarHistoricoBackups } = require('../services/backupManual');
+const { verificarPermissaoEspecifica } = require('./auth');
 
 function parseNumber(valor) {
   const n = Number(valor);
@@ -42,6 +43,13 @@ function dbAll(sql, params = []) {
 
 const FILTRO_VENDA_VALIDA = `(v.status IS NULL OR v.status != 'cancelada')`;
 
+function getFiltroFiscal(modoFiscal) {
+  if (modoFiscal === '1' || modoFiscal === true) {
+    return `AND EXISTS (SELECT 1 FROM nfce_notas n WHERE n.venda_id = v.id)`;
+  }
+  return '';
+}
+
 const SQL_RANKING_PRODUTOS = `
   SELECT
     p.id,
@@ -76,7 +84,7 @@ const SQL_LUCRO_HOJE = `
     AND ${FILTRO_VENDA_VALIDA}
 `;
 
-router.get('/resumo', async (req, res) => {
+router.get('/resumo', verificarPermissaoEspecifica('relatorios'), async (req, res) => {
   try {
     const hoje = new Date();
     const seteDiasAtras = new Date();
@@ -85,6 +93,13 @@ router.get('/resumo', async (req, res) => {
     const dataInicio = req.query.inicio || seteDiasAtras.toISOString().slice(0, 10);
     const dataFim = req.query.fim || hoje.toISOString().slice(0, 10);
     const dataHoje = dataHojeBrasil();
+    const modoFiscal = req.query.modo_fiscal || '0';
+
+    console.log('Dashboard - modo_fiscal recebido:', modoFiscal);
+
+    const filtroFiscal = getFiltroFiscal(modoFiscal);
+
+    console.log('Dashboard - filtro fiscal:', filtroFiscal);
 
     const [
       resumoPeriodo,
@@ -106,9 +121,10 @@ router.get('/resumo', async (req, res) => {
           COALESCE(SUM(total), 0) AS faturamento,
           COUNT(id) AS total_vendas,
           COALESCE(AVG(total), 0) AS ticket_medio
-        FROM vendas
-        WHERE date(data_venda) BETWEEN date(?) AND date(?)
-          AND (status IS NULL OR status != 'cancelada')
+        FROM vendas v
+        WHERE date(v.data_venda) BETWEEN date(?) AND date(?)
+          AND (v.status IS NULL OR v.status != 'cancelada')
+          ${filtroFiscal}
       `, [dataInicio, dataFim]),
 
       dbGet(`
@@ -116,13 +132,14 @@ router.get('/resumo', async (req, res) => {
           COALESCE(SUM(total), 0) AS faturamento_hoje,
           COUNT(id) AS vendas_hoje,
           COALESCE(AVG(total), 0) AS ticket_medio_hoje
-        FROM vendas
-        WHERE date(data_venda) = date(?)
-          AND (status IS NULL OR status != 'cancelada')
+        FROM vendas v
+        WHERE date(v.data_venda) = date(?)
+          AND (v.status IS NULL OR v.status != 'cancelada')
+          ${filtroFiscal}
       `, [dataHoje]),
 
-      dbGet(SQL_LUCRO_PERIODO, [dataInicio, dataFim]),
-      dbGet(SQL_LUCRO_HOJE, [dataHoje]),
+      dbGet(SQL_LUCRO_PERIODO.replace(FILTRO_VENDA_VALIDA, `${FILTRO_VENDA_VALIDA} ${filtroFiscal}`), [dataInicio, dataFim]),
+      dbGet(SQL_LUCRO_HOJE.replace(FILTRO_VENDA_VALIDA, `${FILTRO_VENDA_VALIDA} ${filtroFiscal}`), [dataHoje]),
 
       dbGet(`
         SELECT COALESCE(SUM(vi.quantidade), 0) AS produtos_vendidos
@@ -130,10 +147,11 @@ router.get('/resumo', async (req, res) => {
         INNER JOIN vendas v ON v.id = vi.venda_id
         WHERE date(v.data_venda) BETWEEN date(?) AND date(?)
           AND ${FILTRO_VENDA_VALIDA}
+          ${filtroFiscal}
       `, [dataInicio, dataFim]),
 
       dbAll(`
-        ${SQL_RANKING_PRODUTOS}
+        ${SQL_RANKING_PRODUTOS.replace(FILTRO_VENDA_VALIDA, `${FILTRO_VENDA_VALIDA} ${filtroFiscal}`)}
         HAVING quantidade_vendida > 0
         ORDER BY quantidade_vendida DESC
         LIMIT 3
@@ -183,9 +201,10 @@ router.get('/resumo', async (req, res) => {
           COALESCE(NULLIF(TRIM(LOWER(forma_pagamento)), ''), 'nao_informado') AS forma_pagamento,
           COUNT(*) AS quantidade,
           COALESCE(SUM(total), 0) AS total
-        FROM vendas
-        WHERE date(data_venda) BETWEEN date(?) AND date(?)
-          AND (status IS NULL OR status != 'cancelada')
+        FROM vendas v
+        WHERE date(v.data_venda) BETWEEN date(?) AND date(?)
+          AND (v.status IS NULL OR v.status != 'cancelada')
+          ${filtroFiscal}
         GROUP BY COALESCE(NULLIF(TRIM(LOWER(forma_pagamento)), ''), 'nao_informado')
         ORDER BY total DESC
       `, [dataInicio, dataFim]),
@@ -283,7 +302,7 @@ router.get('/resumo', async (req, res) => {
       ? `AND p.id NOT IN (${idsMais.map(() => '?').join(',')})`
       : '';
     const menosVendidos = await dbAll(`
-      ${SQL_RANKING_PRODUTOS}
+      ${SQL_RANKING_PRODUTOS.replace(FILTRO_VENDA_VALIDA, `${FILTRO_VENDA_VALIDA} ${filtroFiscal}`)}
       ${filtroExcluirMais}
       ORDER BY quantidade_vendida ASC, p.nome ASC
       LIMIT 3

@@ -11,6 +11,7 @@ const {
 } = require('./utils');
 
 const { gerarQRCodeNFCe } = require('./qrcode');
+const { extrairNomeEmpresaDoCertificado } = require('./certificateService');
 
 function splitEnderecoLivre(endereco) {
   const texto = String(endereco || '').trim();
@@ -351,24 +352,40 @@ function buildNfceXml({ config, venda, itens, numero }) {
 
   const enderecoLivre = splitEnderecoLivre(config.endereco);
 
+  // Try to get company name from certificate
+  let nomeEmpresaCertificado = null;
+  if (config.certificadoPath && config.certificadoSenha) {
+    try {
+      nomeEmpresaCertificado = extrairNomeEmpresaDoCertificado(config.certificadoPath, config.certificadoSenha);
+    } catch (error) {
+      console.error('Erro ao extrair nome do certificado, usando nome da configuração:', error);
+    }
+  }
+
+  const nomeEmpresa = nomeEmpresaCertificado || config.nomeEmpresa || 'EMPRESA NAO INFORMADA';
+  
+  // Generate xFant by removing corporate suffixes (LTDA, EIRELI, ME, etc.)
+  const xFant = nomeEmpresa
+    .replace(/\s+(LTDA|EIRELI|ME|EPP|SS|S\/A|S\.A\.|LIMITADA|LIMITADA|SOCIEDADE)\.?$/gi, '')
+    .trim() || nomeEmpresa;
+
   const emit = {
-    xNome: config.nomeEmpresa,
-    xFant: config.nomeEmpresa,
+    xNome: nomeEmpresa,
+    xFant: xFant,
     CNPJ: onlyDigits(config.cnpj),
     IE: onlyDigits(config.ie),
     CRT: config.crt,
     enderEmit: {
       xLgr: String(
-        config.endereco ||
         config.logradouro ||
+        config.endereco ||
         'RUA NAO INFORMADA'
       ).trim()
         .substring(0, 60) || 'RUA NAO INFORMADA',
 
-      nro: String(
-        config.numero ||
-        'S/N'
-      ).trim(),
+      nro: (config.numero && String(config.numero).trim() !== '')
+        ? String(config.numero).trim()
+        : 'S/N',
 
       xBairro: String(
         config.bairro ||
@@ -381,8 +398,8 @@ function buildNfceXml({ config, venda, itens, numero }) {
       ).trim(),
 
       xMun: String(
-        config.cidade ||
         config.municipio ||
+        config.cidade ||
         'JUAZEIRO DO NORTE'
       ).trim(),
 

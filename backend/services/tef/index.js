@@ -1,54 +1,69 @@
-const sitefAdapter = require('./sitefAdapter');
+const { obterAdapter } = require('./tefFactory');
 const repository = require('./tefRepository');
+const tefEvents = require('./tefEvents');
 
 async function iniciarPagamento(dados) {
-  return new Promise((resolve, reject) => {
-    repository.criarTransacao({
-      venda_id: dados.venda_id || null,
-      tipo: dados.tipo,
-      valor: dados.valor,
-      parcelas: dados.parcelas || 1,
-      status: 'pendente',
-      provedor: 'SITEF'
-    }, async (err, transacaoId) => {
-      if (err) {
-        return reject(err);
-      }
+  try {
+    const adapter = await obterAdapter();
 
-      repository.registrarLog(transacaoId, 'INICIO', 'Transação TEF iniciada', dados);
+    return new Promise((resolve, reject) => {
+      repository.criarTransacao({
+        venda_id: dados.venda_id || null,
+        tipo: dados.tipo,
+        valor: dados.valor,
+        parcelas: dados.parcelas || 1,
+        status: 'pendente',
+        provedor: adapter.nome
+      }, async (err, transacaoId) => {
+        if (err) {
+          return reject(err);
+        }
 
-      try {
-        const retorno = await sitefAdapter.autorizarPagamento(dados);
+        repository.registrarLog(transacaoId, 'INICIO', 'Transação TEF iniciada', dados);
 
-        repository.atualizarTransacao(transacaoId, {
-          venda_id: dados.venda_id || null,
-          status: retorno.status,
-          adquirente: retorno.adquirente,
-          bandeira: retorno.bandeira,
-          nsu: retorno.nsu,
-          autorizacao: retorno.autorizacao,
-          codigo_transacao: retorno.codigo_transacao,
-          comprovante_cliente: retorno.comprovante_cliente,
-          comprovante_estabelecimento: retorno.comprovante_estabelecimento,
-          payload_retorno: retorno.payload_retorno
-        }, (updateErr) => {
-          if (updateErr) {
-            return reject(updateErr);
-          }
+        tefEvents.emitirEstado(tefEvents.estados.INSIRA_CARTAO);
 
-          repository.registrarLog(transacaoId, 'RETORNO', retorno.mensagem, retorno);
+        try {
+          const retorno = await adapter.autorizarPagamento(dados);
 
-          resolve({
-            transacao_id: transacaoId,
-            ...retorno
+          tefEvents.emitirEstado(tefEvents.estados.PROCESSANDO);
+
+          repository.atualizarTransacao(transacaoId, {
+            venda_id: dados.venda_id || null,
+            status: retorno.status,
+            adquirente: retorno.adquirente,
+            bandeira: retorno.bandeira,
+            nsu: retorno.nsu,
+            autorizacao: retorno.autorizacao,
+            codigo_transacao: retorno.codigo_transacao,
+            comprovante_cliente: retorno.comprovante_cliente,
+            comprovante_estabelecimento: retorno.comprovante_estabelecimento,
+            payload_retorno: retorno.payload_retorno
+          }, (updateErr) => {
+            if (updateErr) {
+              return reject(updateErr);
+            }
+
+            if (retorno.status === 'aprovado') {
+              tefEvents.emitirEstado(tefEvents.estados.APROVADO);
+            }
+
+            repository.registrarLog(transacaoId, 'RETORNO', retorno.mensagem, retorno);
+
+            resolve({
+              transacao_id: transacaoId,
+              ...retorno
+            });
           });
-        });
-      } catch (error) {
-        repository.registrarLog(transacaoId, 'ERRO', error.message, { error: error.message });
-        reject(error);
-      }
+        } catch (error) {
+          repository.registrarLog(transacaoId, 'ERRO', error.message, { error: error.message });
+          reject(error);
+        }
+      });
     });
-  });
+  } catch (error) {
+    return Promise.reject(error);
+  }
 }
 
 async function cancelarPagamento(transacaoId, motivo = 'Cancelamento da venda') {
@@ -81,7 +96,8 @@ async function cancelarPagamento(transacaoId, motivo = 'Cancelamento da venda') 
       });
 
       try {
-        const retorno = await sitefAdapter.cancelarPagamento({
+        const adapter = await obterAdapter();
+        const retorno = await adapter.cancelarPagamento({
           transacao_id: transacaoId,
           nsu: transacao.nsu,
           autorizacao: transacao.autorizacao,

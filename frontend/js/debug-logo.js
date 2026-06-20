@@ -49,7 +49,7 @@ console.log('\n' + '='.repeat(50));
 console.log('📋 Verificando configurações salvas...\n');
 
 const token = localStorage.getItem('token');
-const API_URL = 'http://localhost:3000/api';
+const API_URL = window.location.origin + '/api';
 
 fetch(`${API_URL}/configuracoes`, {
     headers: {'Authorization': `Bearer ${token}`}

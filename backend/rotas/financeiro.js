@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../database');
 const moment = require('moment');
 const { gravarAuditoria } = require('../services/auditoria');
+const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
 
 console.log('ROTA FINANCEIRO CARREGADA:', __filename);
 
@@ -346,7 +347,7 @@ router.put('/:id', (req, res) => {
   });
 });
 
-router.post('/receber/:id/baixar', (req, res) => {
+router.post('/receber/:id/baixar', validarCaixaAberto, (req, res) => {
   const { id } = req.params;
   db.get('SELECT id, tipo, status FROM financeiro WHERE id = ?', [id], (err, row) => {
     if (err) {
@@ -367,15 +368,15 @@ router.post('/receber/:id/baixar', (req, res) => {
         res.status(500).json({ success: false, error: upErr.message });
         return;
       }
-      // auditoria de baixa/recebimento
+      // auditoria de baixa/recebimento (associando sessao de caixa quando disponível)
       gravarAuditoria({
-        usuario_id: req.user?.id || null,
+        usuario_id: req.operadorId || req.user?.id || null,
         usuario_nome: req.user?.nome || req.user?.username || null,
         modulo: 'financeiro',
         acao: 'baixar_movimentacao',
         referencia_tipo: 'financeiro',
         referencia_id: id,
-        detalhes: { novo_status: novoStatus },
+        detalhes: { novo_status: novoStatus, sessao_id: req.caixaSessaoId || null },
         ip_requisicao: req.ip || null
       }).catch((auditErr) => console.error('Erro ao gravar auditoria de baixa financeiro:', auditErr));
 
@@ -1295,7 +1296,7 @@ router.post('/receber/agrupado/:clienteId/pagamento-parcial', async (req, res) =
 
     const pagamentosRealizados = await new Promise((resolve, reject) => {
       db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+        db.run('BEGIN IMMEDIATE');
 
         let valorRestantePagamento = arredondarCentavos(valorPago);
         const pagamentos = [];

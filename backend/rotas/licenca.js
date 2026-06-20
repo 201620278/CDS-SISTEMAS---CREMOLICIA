@@ -3,8 +3,9 @@ const router = express.Router();
 const db = require('../database');
 const licencaService = require('../services/licencaService');
 const verificarLicenca = require('../services/verificarLicenca');
+const { verificarPermissaoEspecifica } = require('./auth');
 
-router.get('/', async (req, res) => {
+router.get('/', verificarPermissaoEspecifica('configuracoes'), async (req, res) => {
   try {
     const resultado = await verificarLicenca();
     const licenca = await licencaService.obterLicenca();
@@ -36,7 +37,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/historico', async (req, res) => {
+router.get('/historico', verificarPermissaoEspecifica('configuracoes'), async (req, res) => {
   try {
     db.all('SELECT acao, observacao, created_at FROM licenca_historico ORDER BY id DESC', [], (err, rows) => {
       if (err) {
@@ -49,7 +50,7 @@ router.get('/historico', async (req, res) => {
   }
 });
 
-router.post('/ativar', async (req, res) => {
+router.post('/ativar', verificarPermissaoEspecifica('configuracoes'), async (req, res) => {
   try {
     const { codigoLicenca } = req.body;
 

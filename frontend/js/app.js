@@ -185,10 +185,70 @@ if (window.electronAPI) {
 
 
 // ============================================
+// CONFIGURAÇÃO DE IMPLANTAÇÃO (recursos habilitados)
+// ============================================
+let CONFIG_IMPLANTACAO = null;
+
+function obterRecursosImplantacao() {
+    return (CONFIG_IMPLANTACAO && CONFIG_IMPLANTACAO.recursos) || {};
+}
+
+function implantacaoPermiteFiscal() {
+    return obterRecursosImplantacao().fiscal === true;
+}
+
+function implantacaoPermiteMultiCaixa() {
+    return obterRecursosImplantacao().multiCaixa === true;
+}
+
+async function carregarConfiguracaoImplantacao() {
+    try {
+        const response = await fetch(`${API_URL}/configuracoes-avancadas/recursos`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+
+        if (!response.ok) return;
+
+        CONFIG_IMPLANTACAO = await response.json();
+        window.CONFIG_IMPLANTACAO = CONFIG_IMPLANTACAO;
+        aplicarRecursosImplantacao();
+    } catch (error) {
+        console.error('Erro ao carregar configuração de implantação:', error);
+    }
+}
+
+function aplicarRecursosImplantacao() {
+    const recursos = obterRecursosImplantacao();
+
+    $('[data-recurso="fiscal"]').toggle(!!recursos.fiscal);
+    $('[data-recurso="multiCaixa"]').toggle(!!recursos.multiCaixa);
+
+    if (!recursos.fiscal) {
+        localStorage.setItem('pdv_modo_fiscal_ativo', '0');
+    }
+
+    document.body.classList.toggle('implantacao-sem-fiscal', !recursos.fiscal);
+    document.body.classList.toggle('implantacao-fiscal', !!recursos.fiscal);
+    document.body.classList.toggle('implantacao-multicaixa', !!recursos.multiCaixa);
+
+    aplicarModoFiscalGlobal();
+    filtrarMenuPorPermissoes();
+}
+
+function paginaPermitidaPorImplantacao(page) {
+    if (page === 'fiscal' && !implantacaoPermiteFiscal()) return false;
+    if (page === 'caixas' && !implantacaoPermiteMultiCaixa()) return false;
+    return true;
+}
+
+// ============================================
 // MODO FISCAL GLOBAL - F12
 // Menu continua normal, mas dados não fiscais são filtrados
 // ============================================
 function modoFiscalAtivoSistema() {
+    if (!implantacaoPermiteFiscal()) return false;
     return localStorage.getItem('pdv_modo_fiscal_ativo') === '1';
 }
 
@@ -217,6 +277,13 @@ function aplicarModoFiscalGlobal() {
 }
 
 function alternarModoFiscalGlobal() {
+    if (!implantacaoPermiteFiscal()) {
+        if (typeof showNotification === 'function') {
+            showNotification('Emissão fiscal desabilitada para o tipo de implantação configurado.', 'warning');
+        }
+        return;
+    }
+
     const novoValor = modoFiscalAtivoSistema() ? '0' : '1';
     localStorage.setItem('pdv_modo_fiscal_ativo', novoValor);
     aplicarModoFiscalGlobal();
@@ -241,14 +308,32 @@ function handleUnauthorized() {
     window.location.href = '/login';
 }
 
+function isErroSessaoExpirada(xhr) {
+    if (!xhr) return false;
+
+    if (xhr.status === 401) return true;
+
+    if (xhr.status === 403) {
+        const mensagem = String(xhr.responseJSON?.error || '').toLowerCase();
+        return (
+            mensagem.includes('token') ||
+            mensagem.includes('sessão') ||
+            mensagem.includes('sessao') ||
+            mensagem === 'acesso negado'
+        );
+    }
+
+    return false;
+}
+
 $(document).ajaxError(function(event, xhr, settings) {
     // Não processar se o AJAX foi configurado com global: false
     if (settings.global === false) {
         return;
     }
-    
-    if (xhr && (xhr.status === 401 || xhr.status === 403)) {
-        console.warn('Erro de autenticação/autorização:', xhr.status, settings.url);
+
+    if (isErroSessaoExpirada(xhr)) {
+        console.warn('Sessão expirada ou inválida:', xhr.status, settings.url);
         handleUnauthorized();
     }
 });
@@ -256,38 +341,41 @@ $(document).ajaxError(function(event, xhr, settings) {
 $(document).ready(function() {
     if (!localStorage.getItem('token')) return;
 
-    aplicarModoFiscalGlobal();
+    carregarConfiguracaoImplantacao().finally(function() {
+        aplicarModoFiscalGlobal();
 
-    $(document).off('keydown.modoFiscalF12').on('keydown.modoFiscalF12', function(e) {
-        if (e.key === 'F12') {
+        $(document).off('keydown.modoFiscalF12').on('keydown.modoFiscalF12', function(e) {
+            if (e.key === 'F12') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                alternarModoFiscalGlobal();
+                return false;
+            }
+        });
+
+        carregarLogoSidebar();
+        filtrarMenuPorPermissoes();
+
+        $('.nav-link').on('click', function(e) {
             e.preventDefault();
-            e.stopImmediatePropagation();
-            alternarModoFiscalGlobal();
-            return false;
-        }
-    });
+            const page = $(this).data('page');
+            loadPage(page);
+            $('.nav-link').removeClass('active');
+            $(this).addClass('active');
+        });
 
-    carregarLogoSidebar();
-    filtrarMenuPorPermissoes();
-
-    $('.nav-link').on('click', function(e) {
-        e.preventDefault();
-        const page = $(this).data('page');
-        loadPage(page);
         $('.nav-link').removeClass('active');
-        $(this).addClass('active');
+        $('.nav-link[data-page="pdv"]').addClass('active');
+        loadPage(currentPage);
     });
-
-    // Carregar o PDV na primeira abertura do sistema
-    $('.nav-link').removeClass('active');
-    $('.nav-link[data-page="pdv"]').addClass('active');
-    loadPage(currentPage);
 });
 
 // Mapeamento de páginas para permissões
 const PERMISSOES_PAGINAS = {
     'pdv': 'pdv',
     'caixa': 'caixa',
+    'caixas': 'caixa',
+    'fechamento-caixa': 'caixa',
     'produtos': 'produtos',
     'clientes': 'clientes',
     'compras': 'compras',
@@ -297,17 +385,30 @@ const PERMISSOES_PAGINAS = {
     'categorias': 'categorias',
     'fiscal': 'fiscal',
     'configuracoes': 'configuracoes',
+    'licenca': 'configuracoes',
+    'dashboard': 'relatorios',
     'usuarios': 'usuarios',
     'relatorios': 'relatorios'
     , 'auditoria': 'auditoria'
+    , 'configuracoes-avancadas': 'configuracoes'
 };
 
 function obterPermissoesUsuario() {
     try {
         const user = JSON.parse(localStorage.getItem('user') || '{}');
+        let permissoes = user.permissoes || [];
+
+        if (typeof permissoes === 'string') {
+            permissoes = permissoes.split(',').map(p => String(p || '').trim()).filter(Boolean);
+        }
+
+        if (!Array.isArray(permissoes)) {
+            permissoes = [];
+        }
+
         return {
             role: user.role || 'operador',
-            permissoes: user.permissoes || []
+            permissoes
         };
     } catch (e) {
         return { role: 'operador', permissoes: [] };
@@ -317,23 +418,57 @@ function obterPermissoesUsuario() {
 function usuarioTemPermissao(page) {
     const { role, permissoes } = obterPermissoesUsuario();
 
-    // Admin tem acesso a tudo
+    if (page === 'configuracoes-avancadas') {
+        try {
+            const u = JSON.parse(localStorage.getItem('user') || '{}');
+            return String(u.perfil || '').toUpperCase() === 'SUPER_ADMIN';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Admin tem acesso a tudo (exceto configurações avançadas, tratada acima)
     if (role === 'admin') return true;
 
     // Verifica se tem permissão específica para a página
     const permissaoNecessaria = PERMISSOES_PAGINAS[page];
-    if (!permissaoNecessaria) return true; // Página sem restrição
+    // Se não houver mapeamento, negar por segurança
+    if (!permissaoNecessaria) return false;
 
     return permissoes.includes(permissaoNecessaria);
 }
 
+function isSuperAdminUser() {
+    try {
+        const u = JSON.parse(localStorage.getItem('user') || '{}');
+        return String(u.perfil || '').toUpperCase() === 'SUPER_ADMIN';
+    } catch (e) {
+        return false;
+    }
+}
+
 function filtrarMenuPorPermissoes() {
-    $('.nav-link').each(function() {
+    $('.nav-link[data-page]').each(function() {
         const page = $(this).data('page');
-        if (!usuarioTemPermissao(page)) {
-            $(this).parent().hide(); // Esconde o <li> pai
+        const $item = $(this).closest('li');
+
+        if (!paginaPermitidaPorImplantacao(page)) {
+            $item.hide();
+            $(this).hide();
+            return;
         }
+
+        if (!usuarioTemPermissao(page)) {
+            $item.hide();
+            $(this).hide();
+            return;
+        }
+
+        $item.show();
+        $(this).show();
     });
+
+    $('#nav-config-avancadas').toggle(isSuperAdminUser());
 }
 
 function renderSidebarBrandPadrao() {
@@ -481,6 +616,14 @@ function carregarPaginaHtml(url, callback) {
 function loadPage(page) {
     currentPage = page;
 
+    if (!paginaPermitidaPorImplantacao(page)) {
+        showNotification('Este módulo não está habilitado para o tipo de implantação configurado.', 'warning');
+        if (page !== 'pdv') {
+            loadPage('pdv');
+        }
+        return;
+    }
+
     // Verificar permissão antes de carregar a página
     if (!usuarioTemPermissao(page)) {
         showNotification('Você não tem permissão para acessar esta página.', 'warning');
@@ -551,6 +694,10 @@ function loadPage(page) {
             return typeof loadCaixa === 'function' ? loadCaixa() : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar caixa.</div>');
         case 'configuracoes':
             return typeof loadConfiguracoes === 'function' ? loadConfiguracoes() : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar configurações.</div>');
+        case 'configuracoes-avancadas':
+            return typeof loadConfiguracoesAvancadas === 'function'
+                ? loadConfiguracoesAvancadas()
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar configurações avançadas.</div>');
         case 'fiscal':
             return typeof loadFiscal === 'function'
                 ? loadFiscal()

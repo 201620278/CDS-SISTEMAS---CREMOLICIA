@@ -18,7 +18,6 @@ function formatarDataHoraBrasil(data) {
 
 function loadFiscal() {
     renderFiscal();
-    carregarFiscalConfig();
     carregarFiscalNotas();
 }
 
@@ -28,28 +27,24 @@ function toggleVerTodasNotasFiscais() {
 }
 
 function renderFiscal() {
+    const avisoConfigAvancada = (typeof isSuperAdminUser === 'function' && isSuperAdminUser())
+        ? `<div class="alert alert-info py-2 mb-3">
+                <i class="fas fa-info-circle"></i>
+                A configuração fiscal (certificado, CSC, numeração) está em
+                <a href="#" onclick="loadPage('configuracoes-avancadas'); return false;">Configurações Avançadas</a>.
+           </div>`
+        : '';
+
     const html = `
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div><i class="fas fa-receipt"></i> Módulo Fiscal NFC-e</div>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-outline-primary btn-sm" onclick="carregarFiscalConfig()">
-                        <i class="fas fa-rotate-right"></i> Recarregar
-                    </button>
-                    <button class="btn btn-success btn-sm" onclick="salvarConfigFiscal()">
-                        <i class="fas fa-save"></i> Salvar Configuração
-                    </button>
-                </div>
             </div>
             <div class="card-body">
+                ${avisoConfigAvancada}
                 <ul class="nav nav-tabs mb-3">
                     <li class="nav-item">
-                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#fiscal-config-tab" type="button">
-                            Configuração Fiscal
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#fiscal-notas-tab" type="button">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#fiscal-notas-tab" type="button">
                             NFC-e Emitidas
                         </button>
                     </li>
@@ -61,15 +56,7 @@ function renderFiscal() {
                 </ul>
 
                 <div class="tab-content">
-                    <div class="tab-pane fade show active" id="fiscal-config-tab">
-                        <div id="fiscal-config-form-area">
-                            <div class="text-center p-4">
-                                <div class="spinner-border text-primary"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="tab-pane fade" id="fiscal-notas-tab">
+                    <div class="tab-pane fade show active" id="fiscal-notas-tab">
                         <div class="row g-2 mb-3 align-items-end">
                             <div class="col-md-3">
                                 <input type="text" id="fiscalBuscaNota" class="form-control" placeholder="Buscar por chave, venda ou protocolo" oninput="renderTabelaFiscalNotas()">
@@ -150,7 +137,10 @@ function getFiscalField(label, id, value = '', help = '', type = 'text', onblur 
     `;
 }
 
-function carregarFiscalConfig() {
+function carregarFiscalConfig(targetSelector = '#fiscal-config-form-area') {
+    const $target = $(targetSelector);
+    if (!$target.length) return;
+
     $.ajax({
         url: `${API_URL}/fiscal/config`,
         method: 'GET',
@@ -242,44 +232,48 @@ function carregarFiscalConfig() {
                 </div>
             `;
 
-            $('#fiscal-config-form-area').html(html);
+            $target.html(html);
 
-            // Carregar próximo número NFC-e
-            document.getElementById('proximoNumeroNfce').value = (parseInt(cfg.numeroAtual || 0) + 1);
-
-            // Desabilitar campo para não SUPER_ADMIN
-            const usuario = JSON.parse(localStorage.getItem('user') || '{}');
-            const campoNumero = document.getElementById('proximoNumeroNfce');
-            const msgNumero = document.getElementById('msgNumeroNfceSuperUser');
-
-            if (usuario.perfil !== 'SUPER_ADMIN') {
-                campoNumero.disabled = true;
-            } else {
-                msgNumero.style.display = 'none';
+            const proximoNumeroEl = $target.find('#proximoNumeroNfce')[0];
+            if (proximoNumeroEl) {
+                proximoNumeroEl.value = (parseInt(cfg.numeroAtual || 0) + 1);
             }
 
-            $('#fiscal_ambiente').on('change', function () {
+            const usuario = JSON.parse(localStorage.getItem('user') || '{}');
+            const campoNumero = $target.find('#proximoNumeroNfce')[0];
+            const msgNumero = $target.find('#msgNumeroNfceSuperUser')[0];
+
+            if (campoNumero) {
+                if (usuario.perfil !== 'SUPER_ADMIN') {
+                    campoNumero.disabled = true;
+                } else if (msgNumero) {
+                    msgNumero.style.display = 'none';
+                }
+            }
+
+            $target.find('#fiscal_ambiente').on('change', function () {
                 const val = $(this).val();
+                const $alerta = $target.find('#alertaAmbiente');
 
                 if (val === '1') {
-                    $('#alertaAmbiente').html(`
+                    $alerta.html(`
                         <div class="alert alert-danger">
                             ⚠️ Você está em PRODUÇÃO. As notas terão valor fiscal real.
                         </div>
                     `);
                 } else if (val === '2') {
-                    $('#alertaAmbiente').html(`
+                    $alerta.html(`
                         <div class="alert alert-warning">
                             🧪 Ambiente de HOMOLOGAÇÃO (teste sem valor fiscal).
                         </div>
                     `);
                 } else {
-                    $('#alertaAmbiente').html('');
+                    $alerta.html('');
                 }
             }).trigger('change');
         },
         error: function(xhr) {
-            $('#fiscal-config-form-area').html(`
+            $target.html(`
                 <div class="alert alert-danger">
                     Erro ao carregar configuração fiscal: ${xhr.responseJSON?.error || 'erro desconhecido'}
                 </div>
@@ -318,7 +312,11 @@ function salvarConfigFiscal() {
         data: JSON.stringify(payload),
         success: function() {
             showNotification('Configuração fiscal salva com sucesso!');
-            carregarFiscalConfig();
+            if ($('#fiscal-config-form-area-avancadas').length) {
+                carregarFiscalConfig('#fiscal-config-form-area-avancadas');
+            } else {
+                carregarFiscalConfig();
+            }
         },
         error: function(xhr) {
             showNotification(xhr.responseJSON?.error || 'Erro ao salvar configuração fiscal.', 'danger');
