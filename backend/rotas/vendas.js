@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../database');
 const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
 const { emitirPorVendaId } = require('../services/fiscal/emissor');
+const tefManager = require('../services/tef/TefManager');
 
 function agoraLocalBrasil() {
   const agora = new Date();
@@ -32,7 +33,65 @@ function obterTerminalId(req) {
 // evitar inconsistências com o modelo de `caixa_sessoes`.
 
 // Responder venda com emissão fiscal opcional
-function responderVendaComFiscal(res, payload) {
+async function responderVendaComFiscal(res, payload) {
+  let transacoesTefAutorizadas = [];
+
+  // Verificar se há pagamento TEF antes de emitir NFC-e
+  if (payload.emitirFiscal && payload.pagamentosTef) {
+    // Verificar se TEF está habilitado na configuração
+    const tefConfigService = require('../services/tef/tefConfigService');
+    let tefHabilitado = false;
+    try {
+      const tefConfig = await tefConfigService.obterConfiguracao();
+      tefHabilitado = tefConfig.tefHabilitado === true || tefConfig.tefHabilitado === 'true' || tefConfig.tefHabilitado === '1';
+    } catch (error) {
+      console.error('Erro ao verificar configuração TEF:', error);
+      tefHabilitado = false;
+    }
+
+    if (!tefHabilitado) {
+      // TEF desabilitado, não processar pagamentos TEF
+      console.log('TEF desabilitado, pulando autorização de pagamentos TEF');
+    } else {
+      const pagamentosTef = payload.pagamentosTef.filter(p => 
+        p.forma_pagamento === 'cartao_debito' || 
+        p.forma_pagamento === 'cartao_credito' ||
+        p.forma_pagamento === 'cartao'
+      );
+
+      if (pagamentosTef.length > 0) {
+        try {
+          for (const pagamento of pagamentosTef) {
+            const retornoTEF = await tefManager.autorizar({
+              venda_id: payload.vendaId,
+              tipo: pagamento.forma_pagamento,
+              valor: pagamento.valor,
+              parcelas: pagamento.parcelas || 1
+            });
+
+            if (retornoTEF.status !== 'aprovado') {
+              return res.status(400).json({
+                error: 'Pagamento não autorizado',
+                tef: retornoTEF
+              });
+            }
+
+            // Guardar transação autorizada para possível reversão
+            if (retornoTEF.transacao_id) {
+              transacoesTefAutorizadas.push(retornoTEF.transacao_id);
+            }
+          }
+        } catch (error) {
+          console.error('Erro ao autorizar pagamento TEF:', error);
+          return res.status(400).json({
+            error: 'Erro ao autorizar pagamento TEF',
+            detalhes: error.message
+          });
+        }
+      }
+    }
+  }
+
   if (!payload.emitirFiscal) {
     // Sem emissão fiscal, retorna resposta simples
     return res.json({
@@ -44,28 +103,53 @@ function responderVendaComFiscal(res, payload) {
   }
 
   // Com emissão fiscal, chama emitirPorVendaId
-  emitirPorVendaId(payload.vendaId)
-    .then((fiscal) => {
-      res.json({
-        id: payload.vendaId,
-        codigo: payload.codigo,
-        message: payload.message,
-        fiscal
-      });
-    })
-    .catch((error) => {
-      console.error('Erro ao emitir NFC-e:', error);
-      res.json({
-        id: payload.vendaId,
-        codigo: payload.codigo,
-        message: payload.message,
-        fiscal: {
-          success: false,
-          status: 'erro_emissao',
-          message: error.message
+  try {
+    const fiscal = await emitirPorVendaId(payload.vendaId);
+    
+    // Vincular NFC-e às transações TEF autorizadas
+    if (fiscal.success && fiscal.numero && fiscal.chave && transacoesTefAutorizadas.length > 0) {
+      for (const transacaoId of transacoesTefAutorizadas) {
+        try {
+          await tefManager.vincularNfce(transacaoId, fiscal.numero, fiscal.chave);
+          console.log(`NFC-e ${fiscal.numero} vinculada à transação TEF ${transacaoId}`);
+        } catch (vincError) {
+          console.error(`Erro ao vincular NFC-e à transação TEF ${transacaoId}:`, vincError);
         }
-      });
+      }
+    }
+    
+    res.json({
+      id: payload.vendaId,
+      codigo: payload.codigo,
+      message: payload.message,
+      fiscal
     });
+  } catch (error) {
+    console.error('Erro ao emitir NFC-e:', error);
+    
+    // Reverter pagamentos TEF autorizados
+    if (transacoesTefAutorizadas.length > 0) {
+      for (const transacaoId of transacoesTefAutorizadas) {
+        try {
+          await tefManager.cancelar(transacaoId, 'Falha na emissão NFC-e');
+          console.log(`Transação TEF ${transacaoId} cancelada devido a falha na NFC-e`);
+        } catch (cancelError) {
+          console.error(`Erro ao cancelar transação TEF ${transacaoId}:`, cancelError);
+        }
+      }
+    }
+
+    res.json({
+      id: payload.vendaId,
+      codigo: payload.codigo,
+      message: payload.message,
+      fiscal: {
+        success: false,
+        status: 'erro_emissao',
+        message: error.message
+      }
+    });
+  }
 }
 
 // Listar vendas com busca
@@ -512,7 +596,8 @@ router.post('/', validarCaixaAberto, (req, res) => {
                           vendaId,
                           codigo,
                           message: 'Venda a prazo registrada com sucesso',
-                          emitirFiscal: !!emitir_fiscal
+                          emitirFiscal: !!emitir_fiscal,
+                          pagamentosTef: pagamentosVenda
                         });
                         return;
                       }
@@ -712,7 +797,8 @@ router.post('/', validarCaixaAberto, (req, res) => {
                     vendaId,
                     codigo,
                     message: 'Venda registrada com sucesso',
-                    emitirFiscal: !!emitir_fiscal
+                    emitirFiscal: !!emitir_fiscal,
+                    pagamentosTef: pagamentosVenda
                   });
                 };
 

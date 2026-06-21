@@ -10,6 +10,11 @@ document.addEventListener('DOMContentLoaded', function() {
             // Remove do DOM após a animação (opcional, mas mais limpo)
             setTimeout(function() {
                 splashScreen.style.display = 'none';
+                
+                // Verificar transações TEF pendentes após splash screen
+                if (typeof verificarTransacoesPendentes === 'function') {
+                    verificarTransacoesPendentes();
+                }
             }, 500);
         }, 800);
     }

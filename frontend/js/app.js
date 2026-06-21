@@ -845,6 +845,134 @@ function fecharNotificacao(id) {
     }, 300);
 }
 
+// ============================================
+// VERIFICAÇÃO DE TRANSAÇÕES TEF PENDENTES
+// ============================================
+async function verificarTransacoesPendentes() {
+  try {
+    const response = await fetch(`${API_URL}/tef/transacoes-pendentes`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (response.ok && data.sucesso && data.quantidade > 0) {
+      // Exibir modal perguntando se deseja reconciliar
+      const modal = document.createElement('div');
+      modal.className = 'modal fade';
+      modal.id = 'modalTransacoesPendentes';
+      modal.setAttribute('tabindex', '-1');
+      modal.innerHTML = `
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">
+                <i class="fas fa-exclamation-triangle text-warning"></i>
+                Transações Pendentes
+              </h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p>Foram encontradas <strong>${data.quantidade}</strong> transação(ões) TEF pendente(s).</p>
+              <p>Deseja reconciliar estas transações agora?</p>
+              <div class="table-responsive">
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Tipo</th>
+                      <th>Valor</th>
+                      <th>Provedor</th>
+                      <th>Data</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${data.transacoes.map(t => `
+                      <tr>
+                        <td>${t.id}</td>
+                        <td>${t.tipo}</td>
+                        <td>R$ ${Number(t.valor).toFixed(2)}</td>
+                        <td>${t.provedor}</td>
+                        <td>${formatDateTime(t.criado_em)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Ignorar</button>
+              <button type="button" class="btn btn-primary" onclick="reconciliarTransacoesPendentes()">
+                <i class="fas fa-sync"></i> Reconciliar
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      // Usar Bootstrap Modal
+      const bootstrapModal = new bootstrap.Modal(modal);
+      bootstrapModal.show();
+
+      // Remover modal ao fechar
+      modal.addEventListener('hidden.bs.modal', () => {
+        modal.remove();
+      });
+    }
+  } catch (error) {
+    console.error('Erro ao verificar transações pendentes:', error);
+  }
+}
+
+async function reconciliarTransacoesPendentes() {
+  try {
+    const response = await fetch(`${API_URL}/tef/reconciliar-pendentes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    // Fechar modal
+    const modal = document.getElementById('modalTransacoesPendentes');
+    if (modal) {
+      const bootstrapModal = bootstrap.Modal.getInstance(modal);
+      if (bootstrapModal) {
+        bootstrapModal.hide();
+      }
+    }
+
+    if (response.ok && data.sucesso) {
+      showNotification(
+        `Reconciliação concluída: ${data.reconciliadas}/${data.total} reconciliadas, ${data.falhas} falhas`,
+        data.falhas > 0 ? 'warning' : 'success'
+      );
+    } else {
+      showNotification('Erro ao reconciliar transações: ' + (data.erro || 'Erro desconhecido'), 'danger');
+    }
+  } catch (error) {
+    console.error('Erro ao reconciliar transações pendentes:', error);
+    showNotification('Erro ao reconciliar transações: ' + error.message, 'danger');
+    
+    // Fechar modal
+    const modal = document.getElementById('modalTransacoesPendentes');
+    if (modal) {
+      const bootstrapModal = bootstrap.Modal.getInstance(modal);
+      if (bootstrapModal) {
+        bootstrapModal.hide();
+      }
+    }
+  }
+}
+
 $.ajaxSetup({
     beforeSend: function(xhr, settings) {
         if (settings.url && !settings.url.includes('/api/')) return;

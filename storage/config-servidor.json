@@ -1,5 +1,4 @@
 {
-  "modo": "cliente",
-  "ipServidor": "192.168.0.8",
+  "modo": "local",
   "porta": 3001
 }

@@ -4,6 +4,8 @@ const tefService = require('../services/tef');
 const tefConfiguracaoRoutes = require('./tefConfiguracao');
 const tefConciliacaoRoutes = require('./tefConciliacao');
 const db = require('../database');
+const sdkDetector = require('../services/tef/sdkDetector');
+const tefConciliacaoService = require('../services/tef/tefConciliacaoService');
 
 router.use(tefConfiguracaoRoutes);
 router.use(tefConciliacaoRoutes);
@@ -174,6 +176,224 @@ router.get('/transacoes/recentes', (req, res) => {
 
     res.json(rows || []);
   });
+});
+
+router.get('/diagnostico-sdk', async (req, res) => {
+  try {
+    const sdks = sdkDetector.localizarSDKs();
+
+    return res.json({
+      sucesso: true,
+      encontrados: sdks
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      sucesso: false,
+      erro: error.message
+    });
+  }
+});
+
+router.get('/diagnostico', async (req, res) => {
+  try {
+    const sdks = sdkDetector.localizarSDKs();
+
+    res.json({
+      sucesso: true,
+      sdkEncontrado: sdks.length > 0,
+      sdks
+    });
+  } catch (error) {
+    res.status(500).json({
+      sucesso: false,
+      erro: error.message
+    });
+  }
+});
+
+router.get('/transacoes-pendentes', async (req, res) => {
+  try {
+    db.all(`
+      SELECT id, venda_id, tipo, valor, status, provedor, criado_em
+      FROM tef_transacoes
+      WHERE status = 'pendente'
+      ORDER BY criado_em DESC
+    `, (err, rows) => {
+      if (err) {
+        return res.status(500).json({
+          sucesso: false,
+          erro: err.message
+        });
+      }
+
+      res.json({
+        sucesso: true,
+        quantidade: rows.length,
+        transacoes: rows || []
+      });
+    });
+  } catch (error) {
+    res.status(500).json({
+      sucesso: false,
+      erro: error.message
+    });
+  }
+});
+
+router.post('/reconciliar-pendentes', async (req, res) => {
+  try {
+    const tefManager = require('../services/tef/TefManager');
+    
+    db.all(`
+      SELECT id, venda_id, tipo, valor, status, provedor, criado_em
+      FROM tef_transacoes
+      WHERE status = 'pendente'
+      ORDER BY criado_em DESC
+    `, async (err, rows) => {
+      if (err) {
+        return res.status(500).json({
+          sucesso: false,
+          erro: err.message
+        });
+      }
+
+      if (!rows || rows.length === 0) {
+        return res.json({
+          sucesso: true,
+          mensagem: 'Nenhuma transação pendente encontrada',
+          reconciliadas: 0
+        });
+      }
+
+      let reconciliadas = 0;
+      let falhas = 0;
+
+      for (const transacao of rows) {
+        try {
+          // Tentar consultar status da transação no adquirente
+          const resultado = await tefManager.consultar(transacao.id);
+          
+          if (resultado && resultado.status) {
+            // Atualizar status da transação
+            db.run(`
+              UPDATE tef_transacoes
+              SET status = ?, atualizado_em = datetime('now')
+              WHERE id = ?
+            `, [resultado.status, transacao.id], (updateErr) => {
+              if (updateErr) {
+                console.error(`Erro ao atualizar transação ${transacao.id}:`, updateErr);
+                falhas++;
+              } else {
+                reconciliadas++;
+              }
+            });
+          } else {
+            // Se não conseguir consultar, marcar como erro
+            db.run(`
+              UPDATE tef_transacoes
+              SET status = 'erro', atualizado_em = datetime('now')
+              WHERE id = ?
+            `, [transacao.id], (updateErr) => {
+              if (updateErr) {
+                console.error(`Erro ao atualizar transação ${transacao.id}:`, updateErr);
+              }
+              falhas++;
+            });
+          }
+        } catch (error) {
+          console.error(`Erro ao reconciliar transação ${transacao.id}:`, error);
+          falhas++;
+        }
+      }
+
+      res.json({
+        sucesso: true,
+        mensagem: 'Reconciliação concluída',
+        total: rows.length,
+        reconciliadas,
+        falhas
+      });
+    });
+  } catch (error) {
+    res.status(500).json({
+      sucesso: false,
+      erro: error.message
+    });
+  }
+});
+
+router.get('/monitor-status', async (req, res) => {
+  try {
+    const tefMonitorService = require('../services/tef/tefMonitorService');
+    
+    // Verificar se o monitor está respondendo
+    const status = await tefMonitorService.obterStatusMonitor();
+    
+    res.json({
+      sucesso: true,
+      monitor_ativo: true,
+      status
+    });
+  } catch (error) {
+    console.error('Erro ao verificar status do monitor:', error);
+    res.json({
+      sucesso: false,
+      monitor_ativo: false,
+      erro: error.message
+    });
+  }
+});
+
+router.get('/venda-integrada', async (req, res) => {
+  try {
+    // Verificar se há vínculo entre venda_pagamentos e tef_transacoes
+    db.get(`
+      SELECT COUNT(*) as total
+      FROM venda_pagamentos vp
+      INNER JOIN tef_transacoes tt ON vp.tef_transacao_id = tt.id
+      WHERE vp.tef_transacao_id IS NOT NULL
+    `, [], (err, row) => {
+      if (err) {
+        return res.status(500).json({
+          sucesso: false,
+          erro: err.message
+        });
+      }
+
+      const integrada = (row?.total || 0) > 0;
+      
+      res.json({
+        sucesso: true,
+        integrada,
+        total_vinculos: row?.total || 0
+      });
+    });
+  } catch (error) {
+    res.status(500).json({
+      sucesso: false,
+      erro: error.message
+    });
+  }
+});
+
+router.get('/conciliacao', async (req, res) => {
+  try {
+    const { data_inicio, data_fim } = req.query;
+    
+    const dataInicio = data_inicio || new Date().toISOString().split('T')[0];
+    const dataFim = data_fim || new Date().toISOString().split('T')[0];
+    
+    const resultado = await tefConciliacaoService.executarConciliacao(dataInicio, dataFim);
+    
+    res.json(resultado);
+  } catch (error) {
+    console.error('Erro ao executar conciliação TEF:', error);
+    res.status(500).json({
+      sucesso: false,
+      erro: error.message
+    });
+  }
 });
 
 router.post('/transacao/:id/reimprimir', async (req, res) => {

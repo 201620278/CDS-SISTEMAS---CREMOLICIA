@@ -1,6 +1,6 @@
 {
   "tipoImplantacao": "ERP_MULTICAIXA",
-  "modoOperacao": "CLIENTE_SERVIDOR",
-  "ipServidor": "192.168.0.8",
+  "modoOperacao": "LOCAL",
+  "ipServidor": "",
   "porta": 3001
 }

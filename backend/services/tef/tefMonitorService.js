@@ -38,8 +38,8 @@ async function obterStatusMonitor() {
             db.get(`
               SELECT COUNT(*) as reversoes
               FROM tef_transacoes
-              WHERE reversao_executada = 1
-                AND reversao_data >= datetime('now', '-1 hour')
+              WHERE status = 'cancelado'
+                AND atualizado_em >= datetime('now', '-1 hour')
             `, [], (err5, row5) => {
               if (err5) return reject(err5);
 

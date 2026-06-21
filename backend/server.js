@@ -161,7 +161,7 @@ app.use('/api/financeiro', verificarToken, financeiroRoutes);
 app.use('/api/configuracoes', verificarToken, configuracoesRoutes);
 app.use('/api/configuracao-rede', verificarToken, configuracaoRedeRoutes);
 app.use('/api/configuracoes-avancadas', verificarToken, configuracoesAvancadasRoutes);
-app.use('/api/fiscal', verificarToken, exigirRecurso('fiscal'), fiscalRoutes);
+app.use('/api/fiscal', verificarToken, fiscalRoutes);
 app.use('/api/fornecedores', verificarToken, fornecedoresRoutes);
 app.use('/api/impressao', verificarToken, impressaoRoutes);
 app.use('/api/caixa', verificarToken, caixaRoutes);

@@ -242,11 +242,19 @@ function criarTabelas() {
         nsu TEXT,
         autorizacao TEXT,
         codigo_transacao TEXT,
+        codigo_resposta TEXT,
+        mensagem_resposta TEXT,
+        nfce_numero INTEGER,
+        nfce_chave TEXT,
+        idempotency_key TEXT UNIQUE,
         comprovante_cliente TEXT,
         comprovante_estabelecimento TEXT,
         payload_retorno TEXT,
+        data_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
-        atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+        atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -269,6 +277,142 @@ function criarTabelas() {
         descricao TEXT,
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT UNIQUE NOT NULL,
+        numero_cartao TEXT NOT NULL,
+        bin TEXT NOT NULL,
+        last4 TEXT NOT NULL,
+        ativo INTEGER DEFAULT 1,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        invalidado_em DATETIME
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_locks (
+        chave TEXT UNIQUE NOT NULL,
+        expiracao DATETIME NOT NULL,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_auditoria_acesso (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transacao_id INTEGER NOT NULL,
+        usuario_id INTEGER,
+        usuario_nome TEXT,
+        tipo_acesso TEXT NOT NULL,
+        ip_address TEXT,
+        user_agent TEXT,
+        dados_acesso TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (transacao_id) REFERENCES tef_transacoes(id)
+      )
+    `);
+
+    // Adicionar campo hash_integridade na tabela tef_logs
+    db.run(`
+      ALTER TABLE tef_logs
+      ADD COLUMN hash_integridade TEXT
+    `, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error('Erro ao adicionar coluna hash_integridade:', err);
+      }
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_alertas_fraude (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transacao_id INTEGER,
+        alertas TEXT NOT NULL,
+        nivel_risco TEXT NOT NULL,
+        dados_transacao TEXT,
+        contexto TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (transacao_id) REFERENCES tef_transacoes(id)
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_notificacoes_falha (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo_erro TEXT NOT NULL,
+        codigo_erro TEXT,
+        mensagem TEXT,
+        severidade TEXT,
+        dados_falha TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_tokens_cartao (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT UNIQUE NOT NULL,
+        dados_criptografados TEXT NOT NULL,
+        bandeira TEXT,
+        ativo INTEGER DEFAULT 1,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        revogado_em DATETIME
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_conciliacao (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        data_conciliacao DATE NOT NULL,
+        transacoes_tef INTEGER NOT NULL,
+        vendas_vinculadas INTEGER NOT NULL,
+        vendas_nao_vinculadas INTEGER NOT NULL,
+        transacoes_nao_vinculadas INTEGER NOT NULL,
+        total_valor_tef REAL NOT NULL,
+        total_valor_vendas REAL NOT NULL,
+        divergencia_valor REAL NOT NULL,
+        divergencias TEXT,
+        sucesso INTEGER NOT NULL,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_backups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        arquivo TEXT NOT NULL,
+        transacoes_backup INTEGER NOT NULL,
+        logs_backup INTEGER NOT NULL,
+        tamanho_bytes INTEGER NOT NULL,
+        sucesso INTEGER NOT NULL,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_metricas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transacoes_total INTEGER NOT NULL,
+        transacoes_aprovadas INTEGER NOT NULL,
+        transacoes_negadas INTEGER NOT NULL,
+        transacoes_erro INTEGER NOT NULL,
+        valor_total REAL NOT NULL,
+        tempo_medio_resposta REAL,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tef_alertas_monitoramento (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL,
+        mensagem TEXT NOT NULL,
+        severidade TEXT NOT NULL,
+        dados TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
