@@ -824,6 +824,7 @@ async function showModalNovoUsuario(usuario = null) {
                             <label class="form-label">Perfil de Permissão</label>
                             <select class="form-control" id="novo_usuario_perfil">
                                 <option value="USUARIO" ${(usuario?.perfil || 'USUARIO') === 'USUARIO' ? 'selected' : ''}>Usuário Comum</option>
+                                <option value="CAIXA" ${usuario?.perfil === 'CAIXA' ? 'selected' : ''}>Caixa (somente PDV)</option>
                                 <option value="ADMIN" ${usuario?.perfil === 'ADMIN' ? 'selected' : ''}>Administrador (ADMIN)</option>
                                 <option value="SUPER_ADMIN" ${usuario?.perfil === 'SUPER_ADMIN' ? 'selected' : ''}>Super Administrador</option>
                             </select>
@@ -963,6 +964,10 @@ function obterBadgePermissao(perfil) {
 
     if (p === 'ADMIN') {
         return `<span class="badge bg-danger">ADMIN</span>`;
+    }
+
+    if (p === 'CAIXA') {
+        return `<span class="badge bg-success">CAIXA</span>`;
     }
 
     return `<span class="badge bg-secondary">OPERADOR</span>`;
@@ -1909,7 +1914,7 @@ function renderConfiguracoesAvancadas(config) {
                         <button type="button" class="btn btn-primary" onclick="salvarConfiguracoesAvancadas()">
                             <i class="fas fa-save"></i> Salvar Configurações
                         </button>
-                        <button type="button" class="btn btn-secondary" onclick="loadPage('pdv')">
+                        <button type="button" class="btn btn-secondary" onclick="window.location.href='/pdv'">
                             <i class="fas fa-times"></i> Fechar
                         </button>
                     </div>
