@@ -363,6 +363,271 @@ function aplicarAlteracoesPosCriacao() {
   aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultimo_ping DATETIME`);
 }
 
+function criarTabelasMiip() {
+  db.serialize(() => {
+    // Sprint 2 MIIP — estrutura de banco local-first. Tabelas ainda não usadas por rotas.
+    db.run(`
+      CREATE TABLE IF NOT EXISTS miip_decisoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        operacao_id TEXT NOT NULL UNIQUE,
+        origem TEXT NOT NULL DEFAULT 'indefinida',
+        item_hash TEXT,
+        item_snapshot TEXT NOT NULL,
+        contexto_snapshot TEXT,
+        candidatos_snapshot TEXT,
+        motores_snapshot TEXT,
+        produto_sugerido_id INTEGER,
+        produto_decidido_id INTEGER,
+        acao_recomendada TEXT,
+        confianca TEXT,
+        score_final REAL DEFAULT 0,
+        score_gap REAL DEFAULT 0,
+        conflito INTEGER DEFAULT 0,
+        feedback_status TEXT DEFAULT 'pendente',
+        usuario_id INTEGER,
+        duracao_total_ms INTEGER DEFAULT 0,
+        erro TEXT,
+        metadados TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        decided_at DATETIME,
+        FOREIGN KEY (produto_sugerido_id) REFERENCES produtos(id) ON DELETE SET NULL,
+        FOREIGN KEY (produto_decidido_id) REFERENCES produtos(id) ON DELETE SET NULL,
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela miip_decisoes:', err);
+      else console.log('Tabela miip_decisoes criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_decisoes_operacao ON miip_decisoes(operacao_id)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_decisoes_origem_created ON miip_decisoes(origem, created_at)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_decisoes_item_hash ON miip_decisoes(item_hash)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_decisoes_produto_decidido ON miip_decisoes(produto_decidido_id)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_decisoes_confianca ON miip_decisoes(confianca)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_decisoes_created_at ON miip_decisoes(created_at)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_decisoes_origem_confianca_created
+      ON miip_decisoes(origem, confianca, created_at)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_decisoes_feedback_pendente
+      ON miip_decisoes(feedback_status, created_at)
+      WHERE feedback_status = 'pendente'
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS miip_associacoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        produto_id INTEGER NOT NULL,
+        origem TEXT NOT NULL DEFAULT 'manual',
+        fornecedor_cnpj TEXT,
+        fornecedor_nome TEXT,
+        codigo_fornecedor TEXT,
+        codigo_barras TEXT,
+        nome_item TEXT NOT NULL,
+        nome_normalizado TEXT,
+        ncm TEXT,
+        unidade TEXT,
+        score REAL DEFAULT 0,
+        confianca TEXT DEFAULT 'NENHUMA',
+        status TEXT NOT NULL DEFAULT 'ativa',
+        fonte TEXT NOT NULL DEFAULT 'local',
+        decisao_operacao_id TEXT,
+        confirmado_por_usuario_id INTEGER,
+        metadados TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_used_at DATETIME,
+        FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE CASCADE,
+        FOREIGN KEY (confirmado_por_usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela miip_associacoes:', err);
+      else console.log('Tabela miip_associacoes criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_associacoes_produto ON miip_associacoes(produto_id)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_associacoes_fornecedor_codigo ON miip_associacoes(fornecedor_cnpj, codigo_fornecedor)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_associacoes_codigo_barras ON miip_associacoes(codigo_barras)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_associacoes_nome_normalizado ON miip_associacoes(nome_normalizado)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_associacoes_status ON miip_associacoes(status)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_associacoes_created ON miip_associacoes(created_at)
+    `);
+    db.run(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_miip_associacoes_fornecedor_codigo_ativo
+      ON miip_associacoes(fornecedor_cnpj, codigo_fornecedor)
+      WHERE fornecedor_cnpj IS NOT NULL AND codigo_fornecedor IS NOT NULL AND status = 'ativa'
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_associacoes_status_fornecedor_codigo
+      ON miip_associacoes(status, fornecedor_cnpj, codigo_fornecedor)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_associacoes_last_used_at ON miip_associacoes(last_used_at)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_associacoes_decisao_operacao ON miip_associacoes(decisao_operacao_id)
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS miip_sinonimos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        termo TEXT NOT NULL,
+        termo_normalizado TEXT NOT NULL,
+        termo_canonico TEXT,
+        tipo TEXT NOT NULL DEFAULT 'geral',
+        produto_id INTEGER,
+        fornecedor_cnpj TEXT,
+        peso REAL DEFAULT 1.0,
+        origem TEXT NOT NULL DEFAULT 'manual',
+        ativo INTEGER DEFAULT 1,
+        uso_count INTEGER DEFAULT 0,
+        metadados TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE CASCADE
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela miip_sinonimos:', err);
+      else console.log('Tabela miip_sinonimos criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_sinonimos_normalizado ON miip_sinonimos(termo_normalizado)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_sinonimos_tipo ON miip_sinonimos(tipo)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_sinonimos_produto ON miip_sinonimos(produto_id)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_sinonimos_fornecedor ON miip_sinonimos(fornecedor_cnpj)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_sinonimos_ativo ON miip_sinonimos(ativo)
+    `);
+    db.run(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_miip_sinonimos_escopo
+      ON miip_sinonimos(tipo, termo_normalizado, produto_id, fornecedor_cnpj)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_sinonimos_tipo_ativo_normalizado
+      ON miip_sinonimos(tipo, ativo, termo_normalizado)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_sinonimos_ativo_normalizado
+      ON miip_sinonimos(termo_normalizado)
+      WHERE ativo = 1
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS miip_estatisticas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        escopo TEXT NOT NULL,
+        chave TEXT NOT NULL,
+        periodo_tipo TEXT NOT NULL DEFAULT 'diario',
+        periodo_inicio DATE NOT NULL,
+        periodo_fim DATE,
+        total_decisoes INTEGER DEFAULT 0,
+        total_auto_vinculadas INTEGER DEFAULT 0,
+        total_sugestoes INTEGER DEFAULT 0,
+        total_criados_novos INTEGER DEFAULT 0,
+        total_revisao_manual INTEGER DEFAULT 0,
+        total_feedbacks INTEGER DEFAULT 0,
+        total_acertos INTEGER DEFAULT 0,
+        total_erros INTEGER DEFAULT 0,
+        confianca_alta INTEGER DEFAULT 0,
+        confianca_media INTEGER DEFAULT 0,
+        confianca_baixa INTEGER DEFAULT 0,
+        confianca_nenhuma INTEGER DEFAULT 0,
+        score_medio REAL DEFAULT 0,
+        tempo_medio_ms REAL DEFAULT 0,
+        metadados TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(escopo, chave, periodo_tipo, periodo_inicio)
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela miip_estatisticas:', err);
+      else console.log('Tabela miip_estatisticas criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_estatisticas_periodo ON miip_estatisticas(periodo_tipo, periodo_inicio)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_estatisticas_escopo ON miip_estatisticas(escopo)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_estatisticas_chave ON miip_estatisticas(chave)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_estatisticas_escopo_periodo
+      ON miip_estatisticas(escopo, periodo_tipo, periodo_inicio)
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS miip_configuracoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chave TEXT NOT NULL UNIQUE,
+        valor TEXT,
+        tipo TEXT NOT NULL DEFAULT 'string',
+        categoria TEXT NOT NULL DEFAULT 'geral',
+        descricao TEXT,
+        editavel INTEGER NOT NULL DEFAULT 1,
+        versao INTEGER NOT NULL DEFAULT 1,
+        metadados TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela miip_configuracoes:', err);
+      else console.log('Tabela miip_configuracoes criada/verificada');
+    });
+
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_configuracoes_categoria ON miip_configuracoes(categoria)
+    `);
+    db.run(`
+      CREATE INDEX IF NOT EXISTS idx_miip_configuracoes_tipo ON miip_configuracoes(tipo)
+    `);
+
+    db.run(`
+      INSERT OR IGNORE INTO miip_configuracoes (chave, valor, tipo, categoria, descricao, editavel, versao)
+      VALUES ('usarMiip', 'true', 'boolean', 'geral', 'Habilita integração MIIP no ensureProductForItem', 1, 1)
+    `);
+    db.run(`
+      INSERT OR IGNORE INTO miip_configuracoes (chave, valor, tipo, categoria, descricao, editavel, versao)
+      VALUES ('usarMiipImportacaoXML', 'true', 'boolean', 'integracao', 'Habilita identificação MIIP na importação XML', 1, 1)
+    `);
+  });
+}
+
 function criarTabelas() {
   db.serialize(() => {
     db.run(`
@@ -1658,6 +1923,7 @@ function inicializarBanco() {
 
   db.serialize(() => {
     criarTabelas();
+    criarTabelasMiip();
     aplicarAlteracoesPosCriacao();
     migrarDadosCaixaSessoes(db);
     inserirConfiguracoesPadrao();

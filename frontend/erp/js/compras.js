@@ -568,6 +568,9 @@ function normalizeItemCompra(item = {}) {
         }),
         data_validade: item.data_validade || null,
         compra_em: item.compra_em || '',
+        codigo_fornecedor: item.codigo_fornecedor || item.codigoFornecedor || '',
+        miip_sugestao: item.miip_sugestao || null,
+        miip_resultado: item.miip_resultado || null,
         quantidade_embalagens: Number(item.quantidade_embalagens || 0),
         quantidade_por_embalagem: Number(item.quantidade_por_embalagem || 0),
         valor_total_embalagem: Number(item.valor_total_embalagem || 0)
@@ -723,7 +726,8 @@ function renderItensCompraTabela() {
                 <select class="form-control form-control-sm mb-1" onchange="alterarProdutoItemCompra(${index}, this.value)">
                     ${optionsProdutos.replace(`value="${item.produto_id}"`, `value="${item.produto_id}" selected`)}
                 </select>
-                <div>${escapeHtml(item.produto_nome || '')}</div>
+                ${renderMiipSugestaoCard(item, index)}
+                <div class="text-muted small">${escapeHtml(item.produto_nome || '')}</div>
             </td>
             <td style="min-width:120px;">${escapeHtml(item.codigo_barras || '')}</td>
             <td style="min-width:110px;">${item.data_validade ? escapeHtml(item.data_validade) : '<span class="text-muted">-</span>'}</td>
@@ -764,6 +768,291 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function obterUsuarioLogadoCompra() {
+    try {
+        return JSON.parse(localStorage.getItem('user') || '{}');
+    } catch {
+        return {};
+    }
+}
+
+function miipClasseConfianca(confianca) {
+    const valor = String(confianca || 'NENHUMA').toUpperCase();
+    if (valor === 'ALTA') return 'miip-badge-confianca--alta';
+    if (valor === 'MEDIA' || valor === 'MÉDIA') return 'miip-badge-confianca--media';
+    if (valor === 'BAIXA') return 'miip-badge-confianca--baixa';
+    return 'miip-badge-confianca--nenhuma';
+}
+
+function miipConfiancaLabel(confianca) {
+    const valor = String(confianca || 'NENHUMA').toUpperCase();
+    if (valor === 'MEDIA') return 'MÉDIA';
+    return valor;
+}
+
+function miipMotorIcon(motor) {
+    if (motor === 'motor_gtin') return 'fa-barcode';
+    if (motor === 'motor_associacao_fornecedor') return 'fa-truck-loading';
+    return 'fa-brain';
+}
+
+function miipItemExibeSugestao(item) {
+    return Boolean(
+        compraImportadaXml
+        && item?.miip_sugestao
+        && item.miip_sugestao.encontrado
+        && item.miip_sugestao.status === 'pendente'
+        && item.miip_sugestao.produtoId
+    );
+}
+
+function renderMiipSugestaoCard(item, index) {
+    const sugestao = item.miip_sugestao;
+    if (!sugestao) return '';
+
+    if (sugestao.status === 'confirmado') {
+        return `<div class="miip-status-resolvido"><i class="fas fa-check-circle text-success"></i> Associação confirmada</div>`;
+    }
+    if (sugestao.status === 'ignorado') {
+        return `<div class="miip-status-resolvido"><i class="fas fa-eye-slash"></i> Sugestão ignorada</div>`;
+    }
+    if (sugestao.status === 'novo_produto') {
+        return `<div class="miip-status-resolvido"><i class="fas fa-plus-circle"></i> Cadastro de novo produto solicitado</div>`;
+    }
+    if (!miipItemExibeSugestao(item)) return '';
+
+    const confianca = sugestao.confianca || 'NENHUMA';
+    const motorLabel = escapeHtml(sugestao.motorLabel || sugestao.motor || 'MIIP');
+    const produtoNome = escapeHtml(sugestao.produtoNome || 'Produto sugerido');
+    const motorIcon = miipMotorIcon(sugestao.motor);
+
+    return `
+        <div class="miip-sugestao-card">
+            <div class="miip-sugestao-header">
+                <span class="miip-sugestao-titulo"><i class="fas fa-magic"></i> Sugestão MIIP</span>
+                <span class="miip-badge-confianca ${miipClasseConfianca(confianca)}">${escapeHtml(miipConfiancaLabel(confianca))}</span>
+            </div>
+            <div class="miip-produto-nome">${produtoNome}</div>
+            <div class="miip-motor-tag"><i class="fas ${motorIcon}"></i> ${motorLabel}</div>
+            <div class="miip-acoes">
+                <button type="button" class="btn btn-sm btn-confirmar" onclick="confirmarAssociacaoMiip(${index})">
+                    <i class="fas fa-link"></i> Confirmar Associação
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="miipNovoProdutoItemCompra(${index})">
+                    <i class="fas fa-plus"></i> Novo Produto
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="ignorarSugestaoMiip(${index})">
+                    <i class="fas fa-ban"></i> Ignorar
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function renderMiipImportacaoStatus(totalSugestoes, usarMiip, resumo) {
+    const container = $('#miipImportacaoStatus');
+    if (!container.length) return;
+
+    if (!compraImportadaXml) {
+        container.hide().html('');
+        return;
+    }
+
+    if (!usarMiip) {
+        container.show().html(`
+            <div class="miip-importacao-status miip-importacao-status--off">
+                <i class="fas fa-power-off"></i> MIIP desativado — associação manual
+            </div>
+        `);
+        return;
+    }
+
+    if (resumo && resumo.totalItens > 0) {
+        container.show().html(`
+            <div class="miip-importacao-status">
+                <i class="fas fa-robot"></i>
+                MIIP: ${resumo.identificadosAutomaticamente} automático(s),
+                ${resumo.precisamConfirmacao} confirmação(ões),
+                ${resumo.precisamCadastro} cadastro(s)
+                <small class="text-muted">(${resumo.tempoProcessamento}ms)</small>
+            </div>
+        `);
+        return;
+    }
+
+    container.show().html(`
+        <div class="miip-importacao-status">
+            <i class="fas fa-robot"></i>
+            ${totalSugestoes > 0
+                ? `${totalSugestoes} sugestão(ões) inteligente(s) encontrada(s)`
+                : 'Nenhuma sugestão automática — revise os itens manualmente'}
+        </div>
+    `);
+}
+
+function aplicarMiipImportacaoXml(data) {
+    const miip = data?.miip_importacao;
+    if (!miip || !miip.usarMiipImportacaoXML) {
+        carregarSugestoesMiipXml();
+        return;
+    }
+
+    const resultados = Array.isArray(miip.resultados) ? miip.resultados : [];
+    resultados.forEach((resultado) => {
+        const item = itensCompraAtual[resultado.indice];
+        if (!item) return;
+
+        item.miip_resultado = resultado;
+
+        if (resultado.associadoAutomaticamente && resultado.produtoEncontrado?.id) {
+            item.produto_id = resultado.produtoEncontrado.id;
+        }
+
+        if (resultado.precisaConfirmacao && item.miip_sugestao) {
+            item.miip_sugestao = {
+                ...item.miip_sugestao,
+                status: 'pendente'
+            };
+        }
+    });
+
+    renderMiipImportacaoStatus(
+        resultados.filter((r) => r.precisaConfirmacao).length,
+        true,
+        miip.resumo || null
+    );
+    renderItensCompraTabela();
+}
+
+function aplicarSugestoesMiipXml(resposta) {
+    const sugestoes = Array.isArray(resposta?.itens) ? resposta.itens : [];
+
+    sugestoes.forEach((sugestao) => {
+        const item = itensCompraAtual[sugestao.indice];
+        if (!item || !sugestao.encontrado) return;
+
+        item.miip_sugestao = {
+            ...sugestao,
+            status: 'pendente'
+        };
+    });
+
+    renderMiipImportacaoStatus(
+        sugestoes.filter((s) => s.encontrado).length,
+        resposta?.usarMiip !== false
+    );
+    renderItensCompraTabela();
+}
+
+function carregarSugestoesMiipXml() {
+    if (!compraImportadaXml || !Array.isArray(itensCompraAtual) || itensCompraAtual.length === 0) {
+        renderMiipImportacaoStatus(0, false);
+        return;
+    }
+
+    const payload = {
+        origem: 'compra',
+        fornecedor: compraImportadaXml.fornecedor || $('#fornecedor').val() || '',
+        fornecedor_cnpj: compraImportadaXml.fornecedor_cnpj || '',
+        itens: itensCompraAtual.map((item) => ({
+            produto_nome: item.produto_nome,
+            codigo_barras: item.codigo_barras,
+            codigo_fornecedor: item.codigo_fornecedor,
+            ncm: item.ncm,
+            unidade: item.unidade,
+            fornecedor_cnpj: compraImportadaXml.fornecedor_cnpj || '',
+            fornecedor_nome: compraImportadaXml.fornecedor || ''
+        }))
+    };
+
+    $.ajax({
+        url: `${API_URL}/miip/identificar-lote`,
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(payload)
+    }).done(function(resposta) {
+        aplicarSugestoesMiipXml(resposta || {});
+    }).fail(function() {
+        renderMiipImportacaoStatus(0, false);
+        showNotification('Não foi possível carregar sugestões MIIP. Continue com associação manual.', 'warning');
+    });
+}
+
+function confirmarAssociacaoMiip(index) {
+    const item = itensCompraAtual[index];
+    const sugestao = item?.miip_sugestao;
+    if (!item || !sugestao || !sugestao.produtoId) return;
+
+    alterarProdutoItemCompra(index, sugestao.produtoId);
+
+    const usuario = obterUsuarioLogadoCompra();
+    const fornecedorCnpj = compraImportadaXml?.fornecedor_cnpj || '';
+
+    if (fornecedorCnpj && item.codigo_fornecedor) {
+        $.ajax({
+            url: `${API_URL}/miip/feedback`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                confirmado: true,
+                produtoId: sugestao.produtoId,
+                fornecedorCnpj,
+                codigoFornecedor: item.codigo_fornecedor,
+                fornecedorNome: compraImportadaXml?.fornecedor || $('#fornecedor').val() || '',
+                nomeItem: item.produto_nome,
+                codigoBarras: item.codigo_barras,
+                ncm: item.ncm,
+                unidade: item.unidade,
+                usuarioId: usuario.id || null,
+                operacaoId: sugestao.operacaoId || null,
+                motivo: 'confirmacao_importacao_xml',
+                item
+            })
+        });
+    }
+
+    item.miip_sugestao = { ...sugestao, status: 'confirmado' };
+    renderItensCompraTabela();
+    showNotification('Associação confirmada.', 'success');
+}
+
+function ignorarSugestaoMiip(index) {
+    const item = itensCompraAtual[index];
+    if (!item?.miip_sugestao) return;
+
+    item.miip_sugestao = { ...item.miip_sugestao, status: 'ignorado' };
+    renderItensCompraTabela();
+}
+
+function miipNovoProdutoItemCompra(index) {
+    const item = itensCompraAtual[index];
+    if (!item) return;
+
+    if (item.miip_sugestao) {
+        item.miip_sugestao = { ...item.miip_sugestao, status: 'novo_produto' };
+    }
+
+    renderItensCompraTabela();
+
+    if (typeof showProdutoModal === 'function') {
+        showProdutoModal(null);
+        $('#produtoModal').one('shown.bs.modal', function preencherNovoProdutoMiip() {
+            $('#nome').val(item.produto_nome || '');
+            if ($('#codigo_barras').length) $('#codigo_barras').val(item.codigo_barras || '');
+            if ($('#ncm').length) $('#ncm').val(item.ncm || '');
+            if ($('#unidade').length) $('#unidade').val(item.unidade || 'UN');
+            if ($('#preco_compra').length) $('#preco_compra').val(formatNumberInput(item.preco_unitario || 0));
+            if ($('#preco_venda').length) $('#preco_venda').val(formatNumberInput(item.preco_venda_sugerido || 0));
+            if ($('#lucro_percentual').length) $('#lucro_percentual').val(formatNumberInput(item.margem_lucro || 30));
+        });
+        showNotification('Preencha o cadastro do novo produto e selecione-o no item.', 'info');
+        return;
+    }
+
+    editarItemCompra(index);
+    showNotification('Cadastre o novo produto e selecione-o no item.', 'info');
 }
 
 function alterarCampoItemCompra(index, campo, valor) {
@@ -1166,6 +1455,7 @@ function showCompraModal() {
     <div class="col-md-4">
         <button type="button" class="btn btn-outline-secondary" onclick="limparImportacaoXml()">Limpar importação</button>
     </div>
+    <div class="col-12" id="miipImportacaoStatus" style="display:none;"></div>
 </div>
 
 <hr>
@@ -1833,6 +2123,36 @@ function cancelarCompra(id) {
     });
 }
 
+function abrirCadastroProdutoCentralMiip(item, callback) {
+    if (typeof showProdutoModal !== 'function') {
+        if (typeof callback === 'function') callback(null);
+        return;
+    }
+
+    showProdutoModal(null);
+    $('#produtoModal').one('shown.bs.modal', function preencherNovoProdutoCentralMiip() {
+        $('#nome').val(item.produto_nome || '');
+        if ($('#codigo_barras').length) $('#codigo_barras').val(item.codigo_barras || '');
+        if ($('#ncm').length) $('#ncm').val(item.ncm || '');
+        if ($('#unidade').length) $('#unidade').val(item.unidade || 'UN');
+        if ($('#preco_compra').length) $('#preco_compra').val(formatNumberInput(item.preco_unitario || 0));
+        if ($('#preco_venda').length) $('#preco_venda').val(formatNumberInput(item.preco_venda_sugerido || 0));
+        if ($('#lucro_percentual').length) $('#lucro_percentual').val(formatNumberInput(item.margem_lucro || 30));
+    });
+
+    $('#produtoModal').one('hidden.bs.modal', function aposCadastroCentralMiip() {
+        const ultimo = produtosCompraList[produtosCompraList.length - 1];
+        if (typeof callback === 'function') callback(ultimo || null);
+    });
+}
+
+function finalizarImportacaoXmlCompra(data) {
+    compraImportadaXml = data;
+    preencherFormularioCompra(data);
+    aplicarMiipImportacaoXml(data);
+    showNotification('XML importado com sucesso!', 'success');
+}
+
 function importarXmlCompra(input) {
     const file = input.files[0];
     if (!file) return;
@@ -1847,9 +2167,31 @@ function importarXmlCompra(input) {
         processData: false,
         contentType: false
     }).done(function(data) {
-        compraImportadaXml = data;
-        preencherFormularioCompra(data);
-        showNotification('XML importado com sucesso!', 'success');
+        const usarCentral = data?.miip_importacao?.usarMiipImportacaoXML
+            && typeof MiipCentralRevisao !== 'undefined';
+
+        if (usarCentral) {
+            MiipCentralRevisao.iniciar({
+                dadosImportacao: data,
+                apiUrl: API_URL,
+                produtos: produtosCompraList,
+                obterUsuario: obterUsuarioLogadoCompra,
+                abrirCadastroProduto: abrirCadastroProdutoCentralMiip,
+                onConcluir: function(resultado) {
+                    if (resultado?.itens) data.itens = resultado.itens;
+                    finalizarImportacaoXmlCompra(data);
+                },
+                onCancelar: function() {
+                    $('#xmlFile').val('');
+                    compraImportadaXml = null;
+                    renderMiipImportacaoStatus(0, false);
+                    showNotification('Revisão MIIP cancelada.', 'warning');
+                }
+            });
+            return;
+        }
+
+        finalizarImportacaoXmlCompra(data);
     }).fail(function(xhr) {
         showNotification(xhr.responseJSON?.error || 'Erro ao importar XML.', 'danger');
     });
@@ -1858,6 +2200,7 @@ function importarXmlCompra(input) {
 function limparImportacaoXml() {
     compraImportadaXml = null;
     $('#xmlFile').val('');
+    renderMiipImportacaoStatus(0, false);
     // Reset form to empty
     $('#data_compra').val(new Date().toISOString().split('T')[0]);
     $('#data_emissao').val(new Date().toISOString().split('T')[0]);

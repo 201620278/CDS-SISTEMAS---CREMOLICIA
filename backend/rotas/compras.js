@@ -23,6 +23,8 @@ const {
   calcularSubtotalFinanceiroItemCompra,
   resolverQuantidadesCompraItem
 } = require('../lib/motorConversaoUnidades');
+const MiipService = require('../motores/miip/MiipService');
+const MiipImportacaoXmlService = require('../motores/miip/services/MiipImportacaoXmlService');
 
 const itemCompraEhFracionado = itemCompraUsaConversaoUnidades;
 const obterTotalConvertidoItemCompraBackend = obterTotalConvertidoItemCompra;
@@ -265,11 +267,7 @@ function criarFinanceiroCompra(compra, callback) {
   });
 }
 
-function ensureProductForItem(item, callback) {
-  if (item.produto_id) {
-    return callback(null, Number(item.produto_id));
-  }
-
+function ensureProductForItemLegado(item, callback) {
   const codigo = item.codigo_barras || createSlugCodigo(item.produto_nome || 'PRODUTO-IMPORTADO');
   const nome = item.produto_nome || `Produto ${codigo}`;
   const qtds = resolverQuantidadesCompraItem(item);
@@ -309,7 +307,57 @@ function ensureProductForItem(item, callback) {
   );
 }
 
-function processarItensCompra(compraId, itens, fornecedor, done) {
+function ensureProductForItem(item, callback) {
+  if (item.produto_id) {
+    return callback(null, Number(item.produto_id));
+  }
+
+  if (!MiipService.estaHabilitado()) {
+    MiipService.registrarIntegracao({
+      evento: 'legado_feature_flag',
+      item,
+      motivo: 'usarMiip=false — fluxo legado imediato'
+    });
+    return ensureProductForItemLegado(item, callback);
+  }
+
+  MiipService.identificar(item, { origem: 'compra', ponto: 'ensureProductForItem' })
+    .then((miip) => {
+      if (miip?.desabilitado) {
+        return ensureProductForItemLegado(item, callback);
+      }
+
+      if (miip?.produtoId) {
+        return callback(null, Number(miip.produtoId));
+      }
+
+      MiipService.registrarIntegracao({
+        evento: 'miip_fallback_legado',
+        item,
+        resultado: miip?.resultado ?? null,
+        motivo: 'MIIP não encontrou produto — executando ensureProductForItemLegado'
+      });
+
+      return ensureProductForItemLegado(item, callback);
+    })
+    .catch((miipErr) => {
+      MiipService.registrarIntegracao({
+        evento: 'miip_erro_fallback_legado',
+        item,
+        erro: miipErr?.message || String(miipErr),
+        motivo: 'erro MIIP — executando ensureProductForItemLegado'
+      });
+      ensureProductForItemLegado(item, callback);
+    });
+}
+
+function processarItensCompra(compraId, itens, fornecedor, opcoes, done) {
+  if (typeof opcoes === 'function') {
+    done = opcoes;
+    opcoes = {};
+  }
+
+  const fornecedorCnpj = opcoes?.fornecedor_cnpj || null;
   let index = 0;
 
   function next() {
@@ -328,7 +376,13 @@ function processarItensCompra(compraId, itens, fornecedor, done) {
       peso_total_compra: qtdsEstoque.quantidade_convertida
     };
 
-    ensureProductForItem(itemProcessado, (prodErr, produtoId) => {
+    const itemComContexto = {
+      ...itemProcessado,
+      fornecedor: itemProcessado.fornecedor || fornecedor || null,
+      fornecedor_cnpj: itemProcessado.fornecedor_cnpj || fornecedorCnpj || null
+    };
+
+    ensureProductForItem(itemComContexto, (prodErr, produtoId) => {
       if (prodErr) return done(prodErr);
 
       db.get('SELECT preco_compra, preco_venda, controlar_validade FROM produtos WHERE id = ?', [produtoId], (getErr, produto) => {
@@ -967,7 +1021,7 @@ router.post('/', (req, res) => {
         } else {
           // Compra Normal: process items and create financial records
           console.log('Processando itens da compra:', compraId, itensComRateio);
-          processarItensCompra(compraId, itensComRateio, fornecedor, (itensErr) => {
+          processarItensCompra(compraId, itensComRateio, fornecedor, { fornecedor_cnpj }, (itensErr) => {
             if (itensErr) {
               console.error('Erro ao processar itens da compra:', itensErr);
               db.run('ROLLBACK');
@@ -1201,7 +1255,7 @@ router.post('/parse-xml', upload.single('xml'), (req, res) => {
   const xmlContent = req.file.buffer.toString('utf8');
   const xml2js = require('xml2js');
 
-  xml2js.parseString(xmlContent, { explicitArray: false, ignoreAttrs: false }, (err, result) => {
+  xml2js.parseString(xmlContent, { explicitArray: false, ignoreAttrs: false }, async (err, result) => {
     if (err) {
       return res.status(400).json({ error: 'Erro ao parsear XML: ' + err.message });
     }
@@ -1214,17 +1268,9 @@ router.post('/parse-xml', upload.single('xml'), (req, res) => {
 
       const ide = nfe.ide;
       const emit = nfe.emit;
-      const dest = nfe.dest;
-      const transp = nfe.transp;
-      const infIntermed = nfe.infIntermed;
-      const infRespTec = nfe.infRespTec;
       const det = Array.isArray(nfe.det) ? nfe.det : [nfe.det].filter(Boolean);
       const total = nfe.total?.ICMSTot;
-      const transpInfo = nfe.transp;
-      const cobr = nfe.cobr;
-      const pag = nfe.pag;
       const infAdic = nfe.infAdic;
-      const infNFeSupl = nfe.infNFeSupl;
 
       const chaveAcesso = nfe.$?.Id?.replace('NFe', '') || '';
 
@@ -1259,24 +1305,48 @@ router.post('/parse-xml', upload.single('xml'), (req, res) => {
         observacao: infAdic?.infCpl || '',
         itens: det.map(d => {
           const prod = d.prod;
-          const imposto = d.imposto;
           return {
             produto_nome: prod?.xProd || '',
+            codigo_fornecedor: prod?.cProd || '',
             codigo_barras: prod?.cEAN || prod?.cEANTrib || '',
             ncm: prod?.NCM || '',
             unidade: prod?.uCom || 'UN',
             quantidade: parseFloat(prod?.qCom || 0),
             preco_unitario: parseFloat(prod?.vUnCom || 0),
             subtotal: parseFloat(prod?.vProd || 0),
-            margem_lucro: 30, // padrão
+            margem_lucro: 30,
             preco_venda_sugerido: parseFloat(prod?.vUnCom || 0) * 1.3
           };
         })
       };
 
-      res.json(parsed);
+      try {
+        const miipImportacao = await MiipService.processarImportacaoXml(parsed);
+        if (miipImportacao) {
+          parsed.miip_importacao = miipImportacao;
+          (miipImportacao.resultados || []).forEach((resultado, indice) => {
+            const item = parsed.itens[indice];
+            if (!item) return;
+
+            item.miip_resultado = resultado;
+
+            if (resultado.associadoAutomaticamente && resultado.produtoEncontrado?.id) {
+              item.produto_id = resultado.produtoEncontrado.id;
+            }
+
+            const sugestao = MiipImportacaoXmlService.paraSugestaoUi(resultado);
+            if (sugestao) {
+              item.miip_sugestao = sugestao;
+            }
+          });
+        }
+      } catch (miipError) {
+        console.error('[MIIP Importação XML] Falha no processamento MIIP — parse segue sem bloqueio:', miipError?.message);
+      }
+
+      return res.json(parsed);
     } catch (parseErr) {
-      res.status(400).json({ error: 'Erro ao extrair dados do XML: ' + parseErr.message });
+      return res.status(400).json({ error: 'Erro ao extrair dados do XML: ' + parseErr.message });
     }
   });
 });

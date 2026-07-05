@@ -90,6 +90,7 @@ app.get(['/erp', '/erp/'], verificarToken, (req, res) => {
 const produtosRoutes = require('./rotas/produtos');
 const clientesRoutes = require('./rotas/clientes');
 const comprasRoutes = require('./rotas/compras');
+const miipRoutes = require('./rotas/miip');
 const categoriasRoutes = require('./rotas/categorias');
 const subcategoriasRoutes = require('./rotas/subcategorias');
 const vendasRoutes = require('./rotas/vendas');
@@ -125,6 +126,7 @@ configService.reloadGlobalConfig();
 app.use('/api/produtos', verificarToken, produtosRoutes);
 app.use('/api/clientes', verificarToken, clientesRoutes);
 app.use('/api/compras', verificarToken, comprasRoutes);
+app.use('/api/miip', verificarToken, miipRoutes);
 app.use('/api/categorias', verificarToken, categoriasRoutes);
 app.use('/api/subcategorias', verificarToken, subcategoriasRoutes);
 app.use('/api/vendas', verificarToken, vendasRoutes);
