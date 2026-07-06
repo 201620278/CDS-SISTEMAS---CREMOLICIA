@@ -206,6 +206,7 @@ async function emitirPorVendaId(vendaId) {
   }
 
   const itensFiscal = itens.filter(itemEntraNaNfce);
+  const itensDanfe = itens;
 
   if (itensFiscal.length === 0) {
     return {
@@ -415,7 +416,8 @@ async function emitirPorVendaId(vendaId) {
       ...venda,
       tpAmb: config.ambiente
     },
-    itens: itensFiscal,
+    itens: itensDanfe,
+    itensFiscal,
     empresa: {
       nome: config.nomeEmpresa,
       cnpj: config.cnpj,

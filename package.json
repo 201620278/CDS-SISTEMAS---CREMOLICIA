@@ -65,6 +65,7 @@
     "test:central-entradas-sprint5": "node tests/central-entradas/central-entradas-sprint5.test.js",
     "test:central-entradas-sprint4": "node tests/central-entradas/central-entradas-sprint4.test.js",
     "test:dfe-retorno-parser": "node tests/services/fiscal/dfeRetornoParser.test.js",
+    "test:danfe-itens-venda": "node tests/fiscal/danfe-itens-venda.test.js",
     "seed:central-entradas": "node scripts/seed-central-entradas-demo.js",
     "test:nfe-parser": "node tests/shared/nfe/nfe-parser.test.js"
   },
