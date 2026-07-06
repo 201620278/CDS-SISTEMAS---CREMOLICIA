@@ -41,6 +41,10 @@ function loadPage(page) {
             return typeof loadCompras === 'function'
                 ? loadCompras()
                 : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar compras.</div>');
+        case 'central-entradas':
+            return typeof loadCentralEntradas === 'function'
+                ? loadCentralEntradas()
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar Central de Entradas.</div>');
         case 'fornecedores':
             return typeof loadFornecedores === 'function'
                 ? loadFornecedores()

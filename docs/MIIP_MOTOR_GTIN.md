@@ -1,5 +1,8 @@
 # MIIP — Motor GTIN (Sprint 3)
 
+> **MIIP V1.0 RC1** — Documentação congelada. Pipeline oficial com 6 motores. Ver [ARQUITETURA_MIIP.md](./ARQUITETURA_MIIP.md).
+
+
 Primeiro engine funcional do MIIP. Padrão de referência para todos os engines futuros.
 
 ## Fluxo completo

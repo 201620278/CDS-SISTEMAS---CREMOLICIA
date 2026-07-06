@@ -166,10 +166,20 @@ router.post('/feedback', async (req, res) => {
 });
 
 /**
- * GET /api/miip/health
+ * GET /api/miip/health — Saúde RC1 (somente leitura)
  */
-router.get('/health', (req, res) => {
-  res.json(MiipService.healthCheck());
+router.get('/health', async (req, res) => {
+  try {
+    const health = await MiipService.healthCheck();
+    const status = health.pronto ? 200 : 503;
+    return res.status(status).json(health);
+  } catch (error) {
+    return res.status(503).json({
+      pronto: false,
+      versao: '1.0.0-rc1',
+      erro: error?.message || 'Erro no health check MIIP'
+    });
+  }
 });
 
 module.exports = router;

@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const moment = require('moment');
-const multer = require('multer');
 const { gravarAuditoria } = require('../services/auditoria');
 const { validarCaixaAberto } = require('../middleware/validarCaixaAberto');
 const lotesService = require('../services/lotesService');
@@ -23,15 +22,31 @@ const {
   calcularSubtotalFinanceiroItemCompra,
   resolverQuantidadesCompraItem
 } = require('../lib/motorConversaoUnidades');
+const { emitirNFeDevolucaoCompra } = require('../services/fiscal/nfeDevolucaoCompra');
 const MiipService = require('../motores/miip/MiipService');
-const MiipImportacaoXmlService = require('../motores/miip/services/MiipImportacaoXmlService');
+const CentralComprasBridgeService = require('../motores/central-entradas/services/CentralComprasBridgeService');
 
 const itemCompraEhFracionado = itemCompraUsaConversaoUnidades;
 const obterTotalConvertidoItemCompraBackend = obterTotalConvertidoItemCompra;
 const validarDistribuicaoFracionadoItem = validarDistribuicaoConversaoUnidadesItem;
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
-const { emitirNFeDevolucaoCompra } = require('../services/fiscal/nfeDevolucaoCompra');
+
+/**
+ * @param {number|string|null} centralDocumentoId
+ * @param {number} compraId
+ * @param {number|null} usuarioId
+ * @returns {Promise<void>}
+ */
+async function vincularDocumentoCentralAposCompra(centralDocumentoId, compraId, usuarioId) {
+  if (!centralDocumentoId) return;
+
+  try {
+    const bridge = new CentralComprasBridgeService();
+    await bridge.vincularCompra(centralDocumentoId, compraId, { usuarioId });
+  } catch (err) {
+    console.error('[Central] Erro ao vincular documento à compra:', err?.message);
+  }
+}
 
 function agoraLocalBrasil() {
   const agora = new Date();
@@ -869,7 +884,8 @@ router.post('/', (req, res) => {
     parcelas,
     valor_entrada,
     observacao,
-    nota_fiscal_avulsa
+    nota_fiscal_avulsa,
+    central_documento_id: centralDocumentoId
   } = req.body;
 
   const isNotaAvulsa = Number(nota_fiscal_avulsa) === 1;
@@ -1012,11 +1028,14 @@ router.post('/', (req, res) => {
               ip_requisicao: req.ip || null
             }).catch((auditErr) => console.error('Erro ao gravar auditoria de nota fiscal avulsa:', auditErr));
 
-            res.json({
+            const payloadResposta = {
               id: compraId,
               message: 'Nota Fiscal Avulsa registrada com sucesso.',
               nota_fiscal_avulsa: true
-            });
+            };
+
+            vincularDocumentoCentralAposCompra(centralDocumentoId, compraId, req.user?.id)
+              .finally(() => res.json(payloadResposta));
           });
         } else {
           // Compra Normal: process items and create financial records
@@ -1058,7 +1077,7 @@ router.post('/', (req, res) => {
                 ip_requisicao: req.ip || null
               }).catch((auditErr) => console.error('Erro ao gravar auditoria de criação de compra:', auditErr));
 
-              res.json({
+              const payloadResposta = {
                 id: compraId,
                 message: 'Compra registrada com sucesso e integrada ao estoque/financeiro.',
                 conferencia: {
@@ -1066,7 +1085,10 @@ router.post('/', (req, res) => {
                   total_itens_calculado: totalItensCalculado,
                   diferenca_total: diferencaTotal
                 }
-              });
+              };
+
+              vincularDocumentoCentralAposCompra(centralDocumentoId, compraId, req.user?.id)
+                .finally(() => res.json(payloadResposta));
             });
           });
         }
@@ -1247,107 +1269,14 @@ router.post('/:id/cancelar', (req, res) => {
   });
 });
 
-router.post('/parse-xml', upload.single('xml'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'Arquivo XML não enviado.' });
-  }
-
-  const xmlContent = req.file.buffer.toString('utf8');
-  const xml2js = require('xml2js');
-
-  xml2js.parseString(xmlContent, { explicitArray: false, ignoreAttrs: false }, async (err, result) => {
-    if (err) {
-      return res.status(400).json({ error: 'Erro ao parsear XML: ' + err.message });
-    }
-
-    try {
-      const nfe = result.nfeProc?.NFe?.infNFe || result.NFe?.infNFe;
-      if (!nfe) {
-        return res.status(400).json({ error: 'XML não contém uma NF-e válida.' });
-      }
-
-      const ide = nfe.ide;
-      const emit = nfe.emit;
-      const det = Array.isArray(nfe.det) ? nfe.det : [nfe.det].filter(Boolean);
-      const total = nfe.total?.ICMSTot;
-      const infAdic = nfe.infAdic;
-
-      const chaveAcesso = nfe.$?.Id?.replace('NFe', '') || '';
-
-      const parsed = {
-        chave_acesso: chaveAcesso,
-        numero_nf: ide?.nNF || '',
-        serie_nf: ide?.serie || '',
-        modelo_nf: ide?.mod || '55',
-        data_emissao: ide?.dhEmi ? moment(ide.dhEmi).format('YYYY-MM-DD') : '',
-        data_entrada: ide?.dhSaiEnt ? moment(ide.dhSaiEnt).format('YYYY-MM-DD') : '',
-        fornecedor: emit?.xNome || '',
-        fornecedor_cnpj: emit?.CNPJ || '',
-        fornecedor_rua: emit?.enderEmit?.xLgr || '',
-        fornecedor_numero: emit?.enderEmit?.nro || '',
-        fornecedor_bairro: emit?.enderEmit?.xBairro || '',
-        fornecedor_cidade: emit?.enderEmit?.xMun || '',
-        fornecedor_uf: emit?.enderEmit?.UF || '',
-        fornecedor_cep: emit?.enderEmit?.CEP || '',
-        fornecedor_endereco: [
-          emit?.enderEmit?.xLgr,
-          emit?.enderEmit?.nro,
-          emit?.enderEmit?.xBairro,
-          emit?.enderEmit?.xMun,
-          emit?.enderEmit?.UF,
-          emit?.enderEmit?.CEP
-        ].filter(Boolean).join(', '),
-        valor_produtos: parseFloat(total?.vProd || 0),
-        valor_desconto: parseFloat(total?.vDesc || 0),
-        valor_frete: parseFloat(total?.vFrete || 0),
-        valor_outras_despesas: parseFloat(total?.vOutro || 0),
-        valor_total_nota: parseFloat(total?.vNF || 0),
-        observacao: infAdic?.infCpl || '',
-        itens: det.map(d => {
-          const prod = d.prod;
-          return {
-            produto_nome: prod?.xProd || '',
-            codigo_fornecedor: prod?.cProd || '',
-            codigo_barras: prod?.cEAN || prod?.cEANTrib || '',
-            ncm: prod?.NCM || '',
-            unidade: prod?.uCom || 'UN',
-            quantidade: parseFloat(prod?.qCom || 0),
-            preco_unitario: parseFloat(prod?.vUnCom || 0),
-            subtotal: parseFloat(prod?.vProd || 0),
-            margem_lucro: 30,
-            preco_venda_sugerido: parseFloat(prod?.vUnCom || 0) * 1.3
-          };
-        })
-      };
-
-      try {
-        const miipImportacao = await MiipService.processarImportacaoXml(parsed);
-        if (miipImportacao) {
-          parsed.miip_importacao = miipImportacao;
-          (miipImportacao.resultados || []).forEach((resultado, indice) => {
-            const item = parsed.itens[indice];
-            if (!item) return;
-
-            item.miip_resultado = resultado;
-
-            if (resultado.associadoAutomaticamente && resultado.produtoEncontrado?.id) {
-              item.produto_id = resultado.produtoEncontrado.id;
-            }
-
-            const sugestao = MiipImportacaoXmlService.paraSugestaoUi(resultado);
-            if (sugestao) {
-              item.miip_sugestao = sugestao;
-            }
-          });
-        }
-      } catch (miipError) {
-        console.error('[MIIP Importação XML] Falha no processamento MIIP — parse segue sem bloqueio:', miipError?.message);
-      }
-
-      return res.json(parsed);
-    } catch (parseErr) {
-      return res.status(400).json({ error: 'Erro ao extrair dados do XML: ' + parseErr.message });
-    }
+/** @deprecated RC1 — Upload descontinuado; documentos entram pela Central Inteligente. */
+router.post('/parse-xml', async (req, res) => {
+  return res.status(410).json({
+    error: 'Upload de XML em Compras foi descontinuado.',
+    deprecated: true,
+    mensagem: 'Documentos fiscais devem entrar pela Central Inteligente de Entradas.',
+    substituicao: 'POST /api/central-entradas/sincronizar (DF-e) ou aguarde upload enterprise na Central.',
+    documentacao: 'backend/motores/central-entradas/README.md'
   });
 });
 

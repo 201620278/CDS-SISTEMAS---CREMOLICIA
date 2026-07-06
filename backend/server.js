@@ -112,6 +112,7 @@ const alertasRoutes = require('./rotas/alertas');
 const auditoriaRoutes = require('./rotas/auditoria');
 const licencaRoutes = require('./rotas/licenca');
 const dfeRoutes = require('./rotas/dfe');
+const centralEntradasRoutes = require('./rotas/central-entradas');
 const equipamentosRoutes = require('./rotas/equipamentos');
 const laboratorioEquipamentosRoutes = require('./rotas/laboratorioEquipamentos');
 const engenhariaReversaRoutes = require('./rotas/engenhariaReversa');
@@ -162,6 +163,7 @@ app.use('/api/pix', verificarToken, pixRoutes);
 app.use('/api/alertas', verificarToken, alertasRoutes);
 app.use('/api/auditoria', verificarToken, auditoriaRoutes);
 app.use('/api/dfe', verificarToken, exigirRecurso('fiscal'), dfeRoutes);
+app.use('/api/central-entradas', verificarToken, exigirRecurso('fiscal'), centralEntradasRoutes);
 app.use('/api/equipamentos', verificarToken, equipamentosRoutes);
 app.use('/api/laboratorio-equipamentos', verificarToken, laboratorioEquipamentosRoutes);
 app.use('/api/engenharia-reversa', verificarToken, engenhariaReversaRoutes);
@@ -252,6 +254,22 @@ db.whenReady(async (readyErr) => {
     } catch (err) {
         console.error('Falha ao inicializar Motor de Equipamentos:', err.message);
     }
+
+    try {
+        const centralSyncBackground = require('./motores/central-entradas/services/CentralSyncBackgroundService');
+        await centralSyncBackground.iniciar();
+    } catch (err) {
+        console.error('Falha ao inicializar sync automática Central Entradas:', err.message);
+    }
+
+    const encerrarSyncCentral = () => {
+        try {
+            const centralSyncBackground = require('./motores/central-entradas/services/CentralSyncBackgroundService');
+            centralSyncBackground.parar();
+        } catch { /* ignore */ }
+    };
+    process.on('SIGTERM', encerrarSyncCentral);
+    process.on('SIGINT', encerrarSyncCentral);
 
     server.listen(PORT, () => {
         console.log(`Servidor rodando na porta ${PORT}`);

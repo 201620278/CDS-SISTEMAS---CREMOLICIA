@@ -1,34 +1,70 @@
 # MIIP — Motor Inteligente de Identificação de Produtos
 
-**Sprint 1.1:** Refinamento arquitetural (evidências, candidatos, cache, metrics, events).
+**Versão:** `1.0.0-rc1` (Release Candidate)  
+**Documentação:** [`docs/ARQUITETURA_MIIP.md`](../../../docs/ARQUITETURA_MIIP.md)  
+**Release Notes:** [`docs/MIIP_RC1_RELEASE_NOTES.md`](../../../docs/MIIP_RC1_RELEASE_NOTES.md)
 
-Documentação completa: [`docs/ARQUITETURA_MIIP.md`](../../../docs/ARQUITETURA_MIIP.md)
+## Responsabilidade
+
+Identificar qual produto interno do ERP corresponde a um item externo (XML, manual, API), com score, explicação e aprendizado por confirmação explícita.
+
+**Entrada única:** `MiipService` — não chamar engines ou `DecisionEngine` diretamente.
+
+## Pipeline RC1
+
+```
+Canonical (10) → Attribute (20) → Synonyms (30)
+  → GTIN (40) → Fornecedor (50) → Similarity (60)
+  → DecisionEngine + Explain → Persist → Telemetry
+```
+
+Registro: `MiipBootstrap.js` · Execução: `MiipPipelineEngineRunner.js`
 
 ## Estrutura
 
 ```
 miip/
-├── index.js
-├── MiipService.js
+├── MiipService.js           # Fachada oficial
 ├── MiipOrchestrator.js
-├── core/                    # Contratos, MiipEvidence, MiipCandidate
-├── contracts/               # DTOs de entrada/saída
-├── engines/                 # Subpastas por domínio (gtin, fornecedor, …)
-├── repositories/            # IRepository + persistência SQLite
-├── cache/                   # Cache local (reservado)
-├── metrics/                 # Métricas operacionais (reservado)
-├── events/                  # Eventos de domínio (reservado)
+├── MiipBootstrap.js
+├── core/                    # Pipeline, Decision, Explain
+├── engines/                 # 6 motores RC1
+├── services/                # Learning, Importação XML, Telemetry
+├── repositories/            # SQLite (ver @deprecated em sinonimos/estatisticas)
+├── contracts/
+├── config/                  # JSON (rules, synonyms, weights…)
 ├── utils/
-├── config/
+├── audit/                   # Validadores readiness
+├── metrics/
 ├── logs/
-└── tests/
+└── cache/                   # ProdutoCache
 ```
 
-## Status
+## Integrações
 
-| Sprint | Escopo |
-|--------|--------|
-| 0 | Arquitetura documentada |
-| 1 | Estrutura física |
-| 1.1 | MiipEvidence, MiipCandidate, IRepository, MotorRegistry, pastas infra |
-| 2+ | Implementação de regras, engines nas subpastas, integração |
+| Consumidor | Como integra |
+|------------|--------------|
+| Compras | `MiipService`, `enriquecerParseComMiip` |
+| Central Entradas | `enriquecerParseComMiip`, `miipCentralRevisaoUtils` (utils only) |
+| API | `POST /api/miip/*`, `GET /api/miip/health` |
+
+## Testes
+
+```bash
+npm run test:miip              # 17 suítes
+npm run test:miip-readiness    # Validadores arquitetura
+npm run test:miip-benchmark-rc1 # Benchmark oficial RC1
+```
+
+## Health
+
+```bash
+GET /api/miip/health
+```
+
+Retorna pipeline, engines carregados, Decision/Explain/Learning, banco e tempo médio (somente leitura).
+
+## Repositórios deprecados (RC1)
+
+- `MiipSinonimosRepository` — motor Synonyms usa JSON; reservado para evolução futura
+- `MiipEstatisticasRepository` — não participa do runtime RC1; reservado para evolução futura

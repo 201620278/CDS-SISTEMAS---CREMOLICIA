@@ -1,0 +1,29 @@
+/**
+ * Tipos de eventos da Central de Entradas (Sprint 8).
+ *
+ * @module motores/central-entradas/config/centralEventosTipos
+ */
+
+const TIPOS_EVENTO = Object.freeze({
+  SYNC_INICIADA: 'SYNC_INICIADA',
+  SYNC_CONCLUIDA: 'SYNC_CONCLUIDA',
+  SYNC_ERRO: 'SYNC_ERRO',
+  DOCUMENTO_RECEBIDO: 'DOCUMENTO_RECEBIDO',
+  DOCUMENTO_PROCESSADO: 'DOCUMENTO_PROCESSADO',
+  COMPRA_GRAVADA: 'COMPRA_GRAVADA',
+  ERRO: 'ERRO',
+  CONFIG_ALTERADA: 'CONFIG_ALTERADA'
+});
+
+const ORIGENS = Object.freeze({
+  BACKGROUND: 'background',
+  MANUAL: 'manual',
+  API: 'api',
+  SISTEMA: 'sistema',
+  ABRIR_CENTRAL: 'abrir_central'
+});
+
+module.exports = {
+  TIPOS_EVENTO,
+  ORIGENS
+};

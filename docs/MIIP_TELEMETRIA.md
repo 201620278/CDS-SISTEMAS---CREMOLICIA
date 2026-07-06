@@ -1,5 +1,8 @@
 # MIIP — Observabilidade e Telemetria
 
+> **MIIP V1.0 RC1** — Documentação congelada. Pipeline oficial com 6 motores. Ver [ARQUITETURA_MIIP.md](./ARQUITETURA_MIIP.md).
+
+
 **Sprint 14 — Encerramento MIIP V1.0**  
 **Status:** Implementado — aguardando aprovação formal
 

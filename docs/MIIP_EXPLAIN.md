@@ -1,5 +1,8 @@
 # MIIP — Camada de Explicabilidade (Explain Service)
 
+> **MIIP V1.0 RC1** — Documentação congelada. Pipeline oficial com 6 motores. Ver [ARQUITETURA_MIIP.md](./ARQUITETURA_MIIP.md).
+
+
 **Sprint 12 — Fase 2 Inteligência**  
 **Status:** Implementado — aguardando aprovação formal
 

@@ -1,5 +1,8 @@
 # MIIP — Aprendizado por Confirmação (Sprint 5 / 5.1)
 
+> **MIIP V1.0 RC1** — Documentação congelada. Pipeline oficial com 6 motores. Ver [ARQUITETURA_MIIP.md](./ARQUITETURA_MIIP.md).
+
+
 Mecanismo oficial de aprendizado permanente do MIIP. Somente o `MiipLearningService` persiste associações.
 
 ## Princípio fundamental

@@ -1,5 +1,8 @@
 # MIIP — Integração com Importação XML (Sprint 6A)
 
+> **MIIP V1.0 RC1** — Documentação congelada. Pipeline oficial com 6 motores. Ver [ARQUITETURA_MIIP.md](./ARQUITETURA_MIIP.md).
+
+
 Primeira integração oficial do MIIP com o ERP na importação de NF-e (compras).
 
 ## Escopo

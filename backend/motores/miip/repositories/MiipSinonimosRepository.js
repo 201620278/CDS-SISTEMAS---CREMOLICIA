@@ -1,8 +1,11 @@
 /**
  * MiipSinonimosRepository — Persistência de sinônimos e termos normalizados.
  *
+ * @deprecated RC1 — Não participa do runtime. O motor `motor_synonyms` utiliza
+ * dicionários JSON (`config/synonyms/*.json` via `SynonymDictionary`).
+ * Reservado para futura evolução do MIIP V2.
+ *
  * Tabela: `miip_sinonimos`
- * Sprint 2.1: CRUD e consultas — sem regra de negócio.
  *
  * @class MiipSinonimosRepository
  */

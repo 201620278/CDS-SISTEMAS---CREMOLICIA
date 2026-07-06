@@ -1,5 +1,8 @@
 # MIIP — Estrutura de Banco de Dados (Versão Profissional)
 
+> **MIIP V1.0 RC1** — Documentação congelada. Pipeline oficial com 6 motores. Ver [ARQUITETURA_MIIP.md](./ARQUITETURA_MIIP.md).
+
+
 **Sprint:** 2 — Banco de Dados  
 **Status:** ✅ Estrutura implementada em `backend/database.js` — **aguardando aprovação formal**  
 **Escopo:** Somente persistência. Sem lógica de negócio, rotas, repositories, motores ou alterações no ERP.

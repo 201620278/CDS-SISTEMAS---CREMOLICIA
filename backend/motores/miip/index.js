@@ -8,7 +8,7 @@
  * - Expor API estável do domínio de identificação de produtos
  * - Ocultar detalhes internos de engines, repositórios e persistência
  *
- * Sprint 1: apenas estrutura — sem bootstrap em server.js.
+ * RC1: bootstrap via MiipService._garantirInicializado() → MiipBootstrap.
  *
  * @module motores/miip
  */
@@ -37,9 +37,6 @@ const core = {
 
 const repositories = require('./repositories');
 const engines = require('./engines');
-
-// TODO (Sprint 2+): inicializar() — bootstrap do motor no server.js
-// TODO (Sprint 2+): encerrar() — liberação de recursos
 
 module.exports = {
   MiipService,

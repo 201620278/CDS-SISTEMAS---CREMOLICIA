@@ -361,6 +361,9 @@ function aplicarAlteracoesPosCriacao() {
   aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultimo_handshake DATETIME`);
   aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultimo_sync DATETIME`);
   aplicarAlteracaoSegura('equipamentos', `ALTER TABLE equipamentos ADD COLUMN ultimo_ping DATETIME`);
+
+  aplicarAlteracaoSegura('central_entradas_nsu', `ALTER TABLE central_entradas_nsu ADD COLUMN max_nsu TEXT DEFAULT '000000000000000'`);
+  aplicarAlteracaoSegura('central_entradas_nsu', `ALTER TABLE central_entradas_nsu ADD COLUMN data_sincronizacao DATETIME`);
 }
 
 function criarTabelasMiip() {
@@ -1712,7 +1715,8 @@ function criarTabelas() {
       else console.log('Tabela nfce_notas criada/verificada');
     });
 
-    // Tabela de notas recebidas via Distribuição DF-e
+    // @deprecated RC1 — Tabela legada; migração futura para central_entradas_documentos.
+    // Tabela de notas recebidas via Distribuição DF-e (schema antigo)
     db.run(`
       CREATE TABLE IF NOT EXISTS notas_recebidas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1731,7 +1735,8 @@ function criarTabelas() {
       else console.log('Tabela notas_recebidas criada/verificada');
     });
 
-    // Tabela de notas recebidas via DF-e (nova estrutura para distribuição)
+    // @deprecated RC1 — Tabela legada; migração futura para central_entradas_documentos.
+    // Tabela de notas recebidas via DF-e (schema antigo)
     db.run(`
       CREATE TABLE IF NOT EXISTS notas_recebidas_dfe (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1750,6 +1755,161 @@ function criarTabelas() {
     `, (err) => {
       if (err) console.error('Erro ao criar tabela notas_recebidas_dfe:', err);
       else console.log('Tabela notas_recebidas_dfe criada/verificada');
+    });
+
+    // Central Inteligente de Entradas — documentos fiscais do inbox
+    db.run(`
+      CREATE TABLE IF NOT EXISTS central_entradas_documentos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chave TEXT NOT NULL UNIQUE,
+        numero TEXT,
+        serie TEXT,
+        modelo TEXT DEFAULT '55',
+        fornecedor TEXT,
+        cnpj_fornecedor TEXT,
+        data_emissao TEXT,
+        data_entrada TEXT,
+        valor_total REAL,
+        xml TEXT NOT NULL,
+        nsu TEXT,
+        origem TEXT NOT NULL DEFAULT 'dfe',
+        status TEXT NOT NULL DEFAULT 'RECEBIDA',
+        status_detalhe TEXT,
+        parse_json TEXT,
+        miip_sessao_id TEXT,
+        miip_resumo_json TEXT,
+        compra_id INTEGER,
+        usuario_id INTEGER,
+        processado_em DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (compra_id) REFERENCES compras(id)
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela central_entradas_documentos:', err);
+      else console.log('Tabela central_entradas_documentos criada/verificada');
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS central_entradas_historico (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        documento_id INTEGER NOT NULL,
+        status_anterior TEXT,
+        status_novo TEXT NOT NULL,
+        usuario_id INTEGER,
+        detalhe TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (documento_id) REFERENCES central_entradas_documentos(id)
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela central_entradas_historico:', err);
+      else console.log('Tabela central_entradas_historico criada/verificada');
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS central_entradas_nsu (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cnpj TEXT NOT NULL,
+        ambiente INTEGER NOT NULL DEFAULT 2,
+        ult_nsu TEXT NOT NULL DEFAULT '000000000000000',
+        max_nsu TEXT NOT NULL DEFAULT '000000000000000',
+        data_sincronizacao DATETIME,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(cnpj, ambiente)
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela central_entradas_nsu:', err);
+      else console.log('Tabela central_entradas_nsu criada/verificada');
+    });
+
+    db.run(`CREATE INDEX IF NOT EXISTS idx_central_entradas_documentos_status ON central_entradas_documentos(status)`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_entradas_documentos_status:', err);
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_central_entradas_documentos_cnpj ON central_entradas_documentos(cnpj_fornecedor)`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_entradas_documentos_cnpj:', err);
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_central_entradas_documentos_emissao ON central_entradas_documentos(data_emissao)`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_entradas_documentos_emissao:', err);
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_central_entradas_historico_documento ON central_entradas_historico(documento_id)`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_entradas_historico_documento:', err);
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS central_entradas_config (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chave TEXT NOT NULL UNIQUE,
+        valor TEXT,
+        tipo TEXT NOT NULL DEFAULT 'string',
+        descricao TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela central_entradas_config:', err);
+      else console.log('Tabela central_entradas_config criada/verificada');
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS central_entradas_eventos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL,
+        origem TEXT NOT NULL DEFAULT 'sistema',
+        descricao TEXT,
+        resultado TEXT,
+        sucesso INTEGER,
+        documento_id INTEGER,
+        notas_novas INTEGER DEFAULT 0,
+        notas_duplicadas INTEGER DEFAULT 0,
+        duracao_ms INTEGER,
+        detalhe_json TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela central_entradas_eventos:', err);
+      else console.log('Tabela central_entradas_eventos criada/verificada');
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS central_entradas_notificacoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL,
+        titulo TEXT NOT NULL,
+        mensagem TEXT,
+        documento_id INTEGER,
+        lida INTEGER NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Erro ao criar tabela central_entradas_notificacoes:', err);
+      else console.log('Tabela central_entradas_notificacoes criada/verificada');
+    });
+
+    db.run(`CREATE INDEX IF NOT EXISTS idx_central_entradas_eventos_tipo ON central_entradas_eventos(tipo)`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_entradas_eventos_tipo:', err);
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_central_entradas_eventos_created ON central_entradas_eventos(created_at)`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_entradas_eventos_created:', err);
+    });
+    db.run(`CREATE INDEX IF NOT EXISTS idx_central_entradas_notificacoes_lida ON central_entradas_notificacoes(lida)`, (err) => {
+      if (err) console.error('Erro ao criar índice idx_central_entradas_notificacoes_lida:', err);
+    });
+
+    const seedsCentralConfig = [
+      ['sync_automatica_habilitada', 'false', 'boolean', 'Sincronização automática em background'],
+      ['sync_intervalo_minutos', '15', 'number', 'Intervalo entre sincronizações (minutos)'],
+      ['sync_ao_abrir', 'true', 'boolean', 'Sincronizar ao abrir a Central'],
+      ['sync_max_documentos', '50', 'number', 'Máximo de iterações por sincronização'],
+      ['sync_horario_permitido_inicio', '06:00', 'string', 'Início do horário permitido (HH:MM)'],
+      ['sync_horario_permitido_fim', '23:59', 'string', 'Fim do horário permitido (HH:MM)'],
+      ['sync_horario_bloqueado_inicio', '', 'string', 'Início do horário bloqueado (HH:MM, vazio=desligado)'],
+      ['sync_horario_bloqueado_fim', '', 'string', 'Fim do horário bloqueado (HH:MM)'],
+      ['sync_notificar_novas_notas', 'true', 'boolean', 'Notificar quando novas notas forem encontradas']
+    ];
+    seedsCentralConfig.forEach(([chave, valor, tipo, descricao]) => {
+      db.run(
+        `INSERT OR IGNORE INTO central_entradas_config (chave, valor, tipo, descricao) VALUES (?, ?, ?, ?)`,
+        [chave, valor, tipo, descricao]
+      );
     });
 
     // Tabela de configurações (criar por último)

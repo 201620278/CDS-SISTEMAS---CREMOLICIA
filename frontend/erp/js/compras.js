@@ -2,7 +2,7 @@ let produtosCompraList = [];
 let fornecedoresList = [];
 let itensCompraAtual = [];
 let compraImportadaXml = null;
-let dfeConsultaInterval = null;
+let centralDocumentoIdAtual = null;
 let modoEntradaF7Compra = false;
 
 function loadCompras() {
@@ -14,21 +14,10 @@ function loadCompras() {
         produtosCompraList = produtosResp[0] || [];
         fornecedoresList = fornecedoresResp[0] || [];
         renderCompras(comprasResp[0] || []);
+        consumirPendenciaCompraCentral();
     }).fail(function() {
         $('#page-content').html('<div class="alert alert-danger">Erro ao carregar compras.</div>');
     });
-
-    // Start automatic DF-e consultation every 1 hour
-    if (!dfeConsultaInterval) {
-        dfeConsultaInterval = setInterval(async () => {
-            try {
-                console.log('Iniciando consulta automática de notas recebidas via DF-e...');
-                await consultarNotasRecebidas();
-            } catch (error) {
-                console.error('Erro na consulta automática de DF-e:', error);
-            }
-        }, 3600000); // 1 hour = 3600000 ms
-    }
 }
 
 function renderCompras(compras) {
@@ -36,7 +25,12 @@ function renderCompras(compras) {
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div><i class="fas fa-shopping-cart"></i> Compras</div>
-                <button class="btn btn-primary btn-sm" onclick="showCompraModal()"><i class="fas fa-plus"></i> Nova compra</button>
+                <div>
+                    <button class="btn btn-outline-primary btn-sm me-1" onclick="abrirCentralInteligenteEntradas()" title="Documentos fiscais entram pela Central Inteligente">
+                        📥 Importar pela Central Inteligente
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="showCompraModal()"><i class="fas fa-plus"></i> Nova compra</button>
+                </div>
             </div>
             <div class="card-body">
                 <div class="alert alert-info">
@@ -1431,11 +1425,8 @@ function showCompraModal() {
                     <div class="modal-header">
                         <h5 class="modal-title">Lançamento de Nova compra</h5>
                         <div>
-                            <button type="button" class="btn btn-sm btn-primary me-1" title="Notas Recebidas DF-e" onclick="abrirModalNotasRecebidas()">
-                                <i class="fas fa-cloud-download-alt"></i>
-                            </button>
-                            <button type="button" class="btn btn-sm btn-success me-1" title="Buscar NF por Chave" onclick="abrirModalBuscaChave()">
-                                <i class="fas fa-key"></i>
+                            <button type="button" class="btn btn-sm btn-outline-primary me-1" title="Documentos fiscais pela Central Inteligente" onclick="abrirCentralInteligenteEntradas()">
+                                📥 Importar pela Central Inteligente
                             </button>
                             <button type="button" class="btn btn-sm btn-light me-1" title="Minimizar" onclick="minimizarModal('compraModal')">
                                 <i class="fas fa-window-minimize"></i>
@@ -1444,21 +1435,14 @@ function showCompraModal() {
                         </div>
                     </div>
                     <div class="modal-body">
-                                            <div class="row g-3">
-    <div class="col-12">
-        <h6 class="border-bottom pb-2 mb-2">Importar XML da NF-e</h6>
-    </div>
-    <div class="col-md-8">
-        <input type="file" class="form-control" id="xmlFile" accept=".xml" onchange="importarXmlCompra(this)">
-        <small class="text-muted">Selecione o arquivo XML da nota fiscal para importar os dados automaticamente.</small>
-    </div>
-    <div class="col-md-4">
-        <button type="button" class="btn btn-outline-secondary" onclick="limparImportacaoXml()">Limpar importação</button>
-    </div>
-    <div class="col-12" id="miipImportacaoStatus" style="display:none;"></div>
-</div>
-
-<hr>
+                        <div class="alert alert-info mb-3">
+                            Documentos fiscais (NF-e / DF-e) devem ser recebidos pela
+                            <strong>Central Inteligente de Entradas</strong> antes do lançamento em Compras.
+                            <button type="button" class="btn btn-sm btn-primary ms-2" onclick="abrirCentralInteligenteEntradas()">
+                                📥 Abrir Central Inteligente
+                            </button>
+                        </div>
+                        <div class="col-12" id="miipImportacaoStatus" style="display:none;"></div>
 
 <div class="row g-3">
     <div class="col-12">
@@ -1503,24 +1487,16 @@ function showCompraModal() {
         <input type="text" class="form-control" id="modelo_nf" value="55" maxlength="5">
     </div>
 
-    <div class="col-md-5">
+    <div class="col-md-6">
         <label class="form-label">Chave de acesso</label>
         <input
             type="text"
             class="form-control"
             id="chave_acesso"
             maxlength="44"
-            placeholder="Digite a chave da NF-e"
+            placeholder="Preenchida automaticamente pela Central Inteligente"
             oninput="this.value=this.value.replace(/\D/g,'')"
         >
-    </div>
-    <div class="col-md-1 d-flex align-items-end">
-        <button
-            class="btn btn-primary w-100"
-            onclick="buscarNFPorChave()"
-        >
-            <i class="fas fa-search"></i>
-        </button>
     </div>
 
     <div class="col-12">
@@ -1915,6 +1891,10 @@ function saveCompra() {
         nota_fiscal_avulsa: isNotaAvulsa ? 1 : 0
     };
 
+    if (centralDocumentoIdAtual) {
+        data.central_documento_id = centralDocumentoIdAtual;
+    }
+
     if (data.chave_acesso && data.chave_acesso.length !== 44) {
         showNotification('A chave de acesso deve ter 44 dígitos.', 'warning');
         return;
@@ -1932,10 +1912,15 @@ function saveCompra() {
         method: 'POST',
         contentType: 'application/json',
         data: JSON.stringify(data)
-    }).done(function() {
+    }).done(function(resposta) {
+        const docCentral = centralDocumentoIdAtual;
+        centralDocumentoIdAtual = null;
         $('#compraModal').modal('hide');
         showNotification(isNotaAvulsa ? 'Nota Fiscal Avulsa registrada com sucesso!' : 'Compra registrada com sucesso!', 'success');
         loadCompras();
+        if (docCentral && typeof loadPage === 'function') {
+            sessionStorage.setItem('central_pos_gravacao', String(docCentral));
+        }
     }).fail(function(xhr) {
         showNotification(xhr.responseJSON?.error || 'Erro ao registrar compra.', 'danger');
     });
@@ -2150,80 +2135,43 @@ function finalizarImportacaoXmlCompra(data) {
     compraImportadaXml = data;
     preencherFormularioCompra(data);
     aplicarMiipImportacaoXml(data);
-    showNotification('XML importado com sucesso!', 'success');
+    showNotification('Dados da nota carregados pela Central Inteligente.', 'success');
 }
 
-function importarXmlCompra(input) {
-    const file = input.files[0];
-    if (!file) return;
+function abrirCompraDesdeCentralEntradas(payload) {
+    if (!payload?.dadosCompra) return;
 
-    const formData = new FormData();
-    formData.append('xml', file);
-
-    $.ajax({
-        url: `${API_URL}/compras/parse-xml`,
-        method: 'POST',
-        data: formData,
-        processData: false,
-        contentType: false
-    }).done(function(data) {
-        const usarCentral = data?.miip_importacao?.usarMiipImportacaoXML
-            && typeof MiipCentralRevisao !== 'undefined';
-
-        if (usarCentral) {
-            MiipCentralRevisao.iniciar({
-                dadosImportacao: data,
-                apiUrl: API_URL,
-                produtos: produtosCompraList,
-                obterUsuario: obterUsuarioLogadoCompra,
-                abrirCadastroProduto: abrirCadastroProdutoCentralMiip,
-                onConcluir: function(resultado) {
-                    if (resultado?.itens) data.itens = resultado.itens;
-                    finalizarImportacaoXmlCompra(data);
-                },
-                onCancelar: function() {
-                    $('#xmlFile').val('');
-                    compraImportadaXml = null;
-                    renderMiipImportacaoStatus(0, false);
-                    showNotification('Revisão MIIP cancelada.', 'warning');
-                }
-            });
-            return;
-        }
-
-        finalizarImportacaoXmlCompra(data);
-    }).fail(function(xhr) {
-        showNotification(xhr.responseJSON?.error || 'Erro ao importar XML.', 'danger');
-    });
+    centralDocumentoIdAtual = payload.documentoId || null;
+    showCompraModal();
+    finalizarImportacaoXmlCompra(payload.dadosCompra);
 }
 
-function limparImportacaoXml() {
-    compraImportadaXml = null;
-    $('#xmlFile').val('');
-    renderMiipImportacaoStatus(0, false);
-    // Reset form to empty
-    $('#data_compra').val(new Date().toISOString().split('T')[0]);
-    $('#data_emissao').val(new Date().toISOString().split('T')[0]);
-    $('#data_entrada').val(new Date().toISOString().split('T')[0]);
-    $('#fornecedor').val('');
-    $('#numero_nf').val('');
-    $('#serie_nf').val('');
-    $('#modelo_nf').val('55');
-    $('#chave_acesso').val('');
-    $('#observacao_compra').val('');
-    $('#valor_produtos').val('0.00');
-    $('#valor_desconto').val('0.00');
-    $('#valor_frete').val('0.00');
-    $('#valor_outras_despesas').val('0.00');
-    $('#valor_total_nota').val('0.00');
-    $('#condicao_pagamento').val('avista');
-    $('#forma_pagamento').val('');
-    $('#valor_entrada').val('0');
-    $('#parcelas').val('1');
-    $('#data_vencimento').val(new Date().toISOString().split('T')[0]);
-    itensCompraAtual = [];
-    renderItensCompraTabela();
-    atualizarVisibilidadePagamentoCompra();
+function abrirCentralInteligenteEntradas() {
+    const modalEl = document.getElementById('compraModal');
+    if (modalEl) {
+        const instancia = bootstrap.Modal.getInstance(modalEl);
+        if (instancia) instancia.hide();
+    }
+
+    if (typeof loadPage === 'function') {
+        loadPage('central-entradas');
+        return;
+    }
+
+    showNotification('Abra o menu Central Inteligente de Entradas.', 'info');
+}
+
+function consumirPendenciaCompraCentral() {
+    try {
+        const raw = sessionStorage.getItem('central_abrir_compra');
+        if (!raw) return;
+
+        sessionStorage.removeItem('central_abrir_compra');
+        const payload = JSON.parse(raw);
+        abrirCompraDesdeCentralEntradas(payload);
+    } catch (error) {
+        console.error('Erro ao abrir compra da Central:', error);
+    }
 }
 
 function preencherFormularioCompra(data) {
@@ -2607,461 +2555,3 @@ function confirmarEmissaoNFeDevolucaoCompra(id) {
     });
 }
 
-function abrirConsultaNFeRecebida() {
-    const html = `
-    <div class="modal fade" id="modalConsultaNFeRecebida">
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        Notas Recebidas da SEFAZ
-                    </h5>
-                    <button
-                        type="button"
-                        class="btn-close"
-                        data-bs-dismiss="modal">
-                    </button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <button
-                            class="btn btn-success"
-                            onclick="consultarNotasRecebidas()">
-                            Consultar SEFAZ
-                        </button>
-                    </div>
-                    <div id="resultadoNotasRecebidas">
-                        Nenhuma consulta realizada.
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    `;
-
-    $('body').append(html);
-
-    new bootstrap.Modal(
-        document.getElementById('modalConsultaNFeRecebida')
-    ).show();
-}
-
-async function consultarNotasRecebidas() {
-    try {
-        const response = await fetch(`${API_URL}/dfe/consultar-notas`, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.erro || 'Erro ao consultar notas');
-        }
-
-        if (data.sucesso && data.notas && data.notas.length > 0) {
-            let html = `
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Chave</th>
-                            <th>Número</th>
-                            <th>Fornecedor</th>
-                            <th>CNPJ</th>
-                            <th>Data Emissão</th>
-                            <th>Valor Total</th>
-                            <th>Importada</th>
-                            <th>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            data.notas.forEach(nota => {
-                html += `
-                    <tr>
-                        <td style="word-break: break-all;">${nota.chave || '-'}</td>
-                        <td>${nota.numero_nf || '-'}</td>
-                        <td>${nota.fornecedor || '-'}</td>
-                        <td>${nota.cnpj_fornecedor || '-'}</td>
-                        <td>${nota.data_emissao || '-'}</td>
-                        <td>${nota.valor_total ? formatCurrency(nota.valor_total) : '-'}</td>
-                        <td>${nota.importada ? 'Sim' : 'Não'}</td>
-                        <td>
-                            ${!nota.importada ? `
-                                <button
-                                    class="btn btn-sm btn-primary"
-                                    onclick="importarNotaRecebida(${nota.id})"
-                                >
-                                    Importar
-                                </button>
-                            ` : '<span class="text-muted">Já importada</span>'}
-                        </td>
-                    </tr>
-                `;
-            });
-
-            html += `
-                    </tbody>
-                </table>
-            `;
-
-            $('#resultadoNotasRecebidas').html(html);
-        } else {
-            $('#resultadoNotasRecebidas').html('<p class="text-muted">Nenhuma nota recebida encontrada.</p>');
-        }
-    } catch (error) {
-        console.error('Erro ao consultar notas recebidas:', error);
-        showNotification(error.message || 'Erro ao consultar notas recebidas', 'danger');
-        $('#resultadoNotasRecebidas').html(`<p class="text-danger">Erro: ${error.message}</p>`);
-    }
-}
-
-async function importarNotaRecebida(id) {
-    try {
-        const response = await fetch(`${API_URL}/dfe/importar-nota/${id}`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.erro || 'Erro ao importar nota');
-        }
-
-        showNotification('Nota importada com sucesso!', 'success');
-
-        // Refresh the notes list
-        consultarNotasRecebidas();
-
-        // If compra data was returned, load it into the form
-        if (data.compra) {
-            loadCompraIntoForm(data.compra);
-        }
-    } catch (error) {
-        console.error('Erro ao importar nota:', error);
-        showNotification(error.message || 'Erro ao importar nota', 'danger');
-    }
-}
-
-function loadCompraIntoForm(compra) {
-    // Fill the compra form with the imported data
-    $('#fornecedor').val(compra.fornecedor_id || '');
-    $('#numero_nf').val(compra.numero_nf || '');
-    $('#serie_nf').val(compra.serie_nf || '');
-    $('#modelo_nf').val(compra.modelo_nf || '55');
-    $('#chave_acesso').val(compra.chave_acesso || '');
-    $('#data_compra').val(compra.data_compra || '');
-    $('#data_emissao').val(compra.data_emissao || '');
-    $('#condicao_pagamento').val(compra.condicao_pagamento || 'avista');
-    $('#forma_pagamento').val(compra.forma_pagamento || '');
-    $('#data_vencimento').val(compra.data_vencimento || '');
-    $('#parcelas').val(compra.parcelas || 1);
-    $('#valor_entrada').val(compra.valor_entrada || 0);
-    $('#observacao_compra').val(compra.observacao || '');
-
-    // Load items if provided
-    if (compra.itens && compra.itens.length > 0) {
-        // Clear existing items
-        $('#itensCompra').empty();
-
-        compra.itens.forEach(item => {
-            addItemToCompraForm(item);
-        });
-
-        // Calculate totals
-        calcularTotalCompra();
-    }
-
-    showNotification('Dados da nota carregados no formulário', 'success');
-}
-
-function addItemToCompraForm(item) {
-    const rowId = Date.now();
-    const html = `
-        <tr id="item_${rowId}">
-            <td>
-                <input type="text" class="form-control produto-nome" value="${item.produto_nome || item.nome || ''}" readonly>
-                <input type="hidden" class="produto-id" value="${item.produto_id || ''}">
-            </td>
-            <td>
-                <input type="number" class="form-control quantidade" value="${item.quantidade || 1}" step="0.01" onchange="calcularTotalCompra()">
-            </td>
-            <td>
-                <input type="number" class="form-control preco-unitario" value="${item.preco_unitario || item.valor || 0}" step="0.01" onchange="calcularTotalCompra()">
-            </td>
-            <td>
-                <input type="number" class="form-control subtotal" value="${item.subtotal || (item.quantidade * item.preco_unitario)}" readonly>
-            </td>
-            <td>
-                <button type="button" class="btn btn-danger btn-sm" onclick="removerItemCompra(${rowId})">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </td>
-        </tr>
-    `;
-
-    $('#itensCompra').append(html);
-}
-
-function removerItemCompra(rowId) {
-    $(`#item_${rowId}`).remove();
-    calcularTotalCompra();
-}
-
-function calcularTotalCompra() {
-    let total = 0;
-    $('#itensCompra tr').each(function() {
-        const quantidade = parseFloat($(this).find('.quantidade').val()) || 0;
-        const precoUnitario = parseFloat($(this).find('.preco-unitario').val()) || 0;
-        const subtotal = quantidade * precoUnitario;
-        $(this).find('.subtotal').val(subtotal.toFixed(2));
-        total += subtotal;
-    });
-
-    $('#totalCompra').val(total.toFixed(2));
-}
-
-async function buscarNFPorChave() {
-    try {
-        const resp = await fetch(`${API_URL}/dfe/distribuir-documentos`, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-            }
-        });
-
-        const dados = await resp.json();
-
-        if (!resp.ok) {
-            throw new Error(dados.mensagem || 'Erro ao buscar notas');
-        }
-
-        console.log('Notas recebidas via DF-e:', dados);
-
-        if (dados.sucesso && dados.notas && dados.notas.length > 0) {
-            showNotification(`${dados.notas.length} notas recebidas via DF-e!`, 'success');
-            
-            // TODO: Process the XMLs and display them in the modal
-            dados.notas.forEach((xml, index) => {
-                console.log(`XML ${index + 1}:`, xml);
-            });
-        } else {
-            showNotification('Nenhuma nota recebida via DF-e', 'warning');
-        }
-    } catch (error) {
-        console.error('Erro ao buscar notas via DF-e:', error);
-        showNotification(error.message || 'Erro ao buscar notas', 'danger');
-    }
-}
-
-function abrirModalNotasRecebidas() {
-    const modalHtml = `
-        <div class="modal fade" id="notasRecebidasModal" tabindex="-1">
-            <div class="modal-dialog modal-xl modal-dialog-scrollable">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Notas Recebidas via DF-e</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="mb-3">
-                            <button type="button" class="btn btn-primary" onclick="sincronizarNotasRecebidas()">
-                                <i class="fas fa-sync"></i> Sincronizar Notas
-                            </button>
-                        </div>
-                        <div id="notasRecebidasGrid"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    $('#page-content').append(modalHtml);
-    const modal = new bootstrap.Modal(document.getElementById('notasRecebidasModal'));
-    modal.show();
-    
-    document.getElementById('notasRecebidasModal').addEventListener('hidden.bs.modal', function() {
-        this.remove();
-    });
-}
-
-function abrirModalBuscaChave() {
-    const modalHtml = `
-        <div class="modal fade" id="buscaChaveModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Buscar NF por Chave</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="mb-3">
-                            <label class="form-label">Chave de Acesso (44 dígitos)</label>
-                            <input type="text" class="form-control" id="chaveBusca" maxlength="44" placeholder="Digite a chave de 44 dígitos" oninput="this.value=this.value.replace(/\\D/g,'')">
-                        </div>
-                        <button type="button" class="btn btn-primary" onclick="buscarNotaPorChave()">
-                            <i class="fas fa-search"></i> Buscar
-                        </button>
-                        <div id="resultadoBuscaChave" class="mt-3"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    $('#page-content').append(modalHtml);
-    const modal = new bootstrap.Modal(document.getElementById('buscaChaveModal'));
-    modal.show();
-    
-    document.getElementById('buscaChaveModal').addEventListener('hidden.bs.modal', function() {
-        this.remove();
-    });
-}
-
-async function sincronizarNotasRecebidas() {
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_URL}/dfe/distribuir-documentos`, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        const dados = await response.json();
-        
-        if (dados.sucesso) {
-            carregarGridNotas(dados.notas);
-            showNotification('Notas sincronizadas com sucesso!');
-        } else {
-            showNotification(dados.mensagem || 'Erro ao sincronizar notas', 'danger');
-        }
-    } catch (error) {
-        console.error('Erro ao sincronizar notas:', error);
-        showNotification('Erro ao sincronizar notas: ' + error.message, 'danger');
-    }
-}
-
-function carregarGridNotas(notas) {
-    const grid = document.getElementById('notasRecebidasGrid');
-    
-    if (!notas || notas.length === 0) {
-        grid.innerHTML = '<div class="alert alert-info">Nenhuma nota recebida via DF-e</div>';
-        return;
-    }
-    
-    let html = `
-        <table class="table table-striped">
-            <thead>
-                <tr>
-                    <th>Chave</th>
-                    <th>Número</th>
-                    <th>Série</th>
-                    <th>Fornecedor</th>
-                    <th>CNPJ</th>
-                    <th>Data Emissão</th>
-                    <th>Valor Total</th>
-                    <th>NSU</th>
-                    <th>Ações</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
-    
-    notas.forEach(nota => {
-        html += `
-            <tr>
-                <td>${nota.chave || ''}</td>
-                <td>${nota.numero || ''}</td>
-                <td>${nota.serie || ''}</td>
-                <td>${nota.fornecedor || ''}</td>
-                <td>${nota.cnpj_fornecedor || ''}</td>
-                <td>${nota.data_emissao || ''}</td>
-                <td>${nota.valor_total ? formatarMoeda(nota.valor_total) : ''}</td>
-                <td>${nota.nsu || ''}</td>
-                <td>
-                    <button class="btn btn-success" onclick="importarCompraDfe('${nota.chave}')">
-                        Importar
-                    </button>
-                </td>
-            </tr>
-        `;
-    });
-    
-    html += '</tbody></table>';
-    grid.innerHTML = html;
-}
-
-async function buscarNotaPorChave() {
-    const chave = document.getElementById('chaveBusca').value;
-    
-    if (!chave || chave.length !== 44) {
-        showNotification('Chave deve ter 44 dígitos', 'warning');
-        return;
-    }
-    
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_URL}/dfe/consultar-chave?chave=${chave}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        const dados = await response.json();
-        
-        if (dados.sucesso && dados.notas && dados.notas.length > 0) {
-            const nota = dados.notas[0];
-            document.getElementById('resultadoBuscaChave').innerHTML = `
-                <div class="alert alert-success">
-                    <strong>Nota encontrada!</strong><br>
-                    Número: ${nota.numero}<br>
-                    Fornecedor: ${nota.fornecedor}<br>
-                    Chave: ${nota.chave}
-                </div>
-            `;
-        } else {
-            showNotification(dados.mensagem || 'Nenhuma nota encontrada', 'warning');
-        }
-    } catch (error) {
-        console.error('Erro ao buscar nota:', error);
-        showNotification('Erro ao buscar nota: ' + error.message, 'danger');
-    }
-}
-
-async function importarCompraDfe(chave) {
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_URL}/dfe/importar-nota`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ chave })
-        });
-        
-        const dados = await response.json();
-        
-        if (dados.sucesso) {
-            showNotification('Nota importada com sucesso!', 'success');
-            bootstrap.Modal.getInstance(document.getElementById('notasRecebidasModal')).hide();
-            loadCompras();
-        } else {
-            showNotification(dados.mensagem || 'Erro ao importar nota', 'danger');
-        }
-    } catch (error) {
-        console.error('Erro ao importar nota:', error);
-        showNotification('Erro ao importar nota: ' + error.message, 'danger');
-    }
-}
-
-function formatarMoeda(valor) {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
-}

@@ -1,8 +1,11 @@
 /**
  * MiipEstatisticasRepository — Persistência de agregados e métricas do MIIP.
  *
+ * @deprecated RC1 — Não participa do runtime. Agregados operacionais usam
+ * `MiipDecisoesRepository.agregarEstatisticas()` e telemetria in-memory.
+ * Reservado para futura evolução do MIIP V2.
+ *
  * Tabela: `miip_estatisticas`
- * Sprint 2.1: CRUD e consultas — sem regra de negócio.
  *
  * @class MiipEstatisticasRepository
  */

@@ -1,5 +1,8 @@
 # MIIP — Modelo Semântico
 
+> **MIIP V1.0 RC1** — Documentação congelada. Pipeline oficial com 6 motores. Ver [ARQUITETURA_MIIP.md](./ARQUITETURA_MIIP.md).
+
+
 **Sprint 7.2 — Domínio da Fase 2**  
 **Status:** Implementado — aguardando aprovação formal
 

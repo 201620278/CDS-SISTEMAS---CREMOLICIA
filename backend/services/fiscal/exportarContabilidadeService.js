@@ -100,6 +100,7 @@ async function buscarXmlEntrada(compra) {
   const chave = String(compra.chave_acesso || '').replace(/\D/g, '');
 
   if (chave.length === 44) {
+    // @deprecated RC1 — leitura de tabelas legadas; migração futura para central_entradas_documentos
     const dfe = await dbGet('SELECT xml FROM notas_recebidas_dfe WHERE chave = ? LIMIT 1', [chave]);
     if (dfe?.xml) {
       return dfe.xml;

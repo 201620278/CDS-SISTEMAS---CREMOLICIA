@@ -12,6 +12,7 @@ const PERMISSOES_PAGINAS = {
     produtos: 'produtos',
     clientes: 'clientes',
     compras: 'compras',
+    'central-entradas': 'compras',
     fornecedores: 'fornecedores',
     vendas: 'vendas',
     consulta: 'pdv',

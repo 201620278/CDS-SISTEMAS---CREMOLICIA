@@ -1,5 +1,8 @@
 # MIIP — Motor de Similaridade Híbrida (Similarity Engine)
 
+> **MIIP V1.0 RC1** — Documentação congelada. Pipeline oficial com 6 motores. Ver [ARQUITETURA_MIIP.md](./ARQUITETURA_MIIP.md).
+
+
 **Sprint 10 — Fase 2 Inteligência**  
 **Status:** Implementado — aguardando aprovação formal
 

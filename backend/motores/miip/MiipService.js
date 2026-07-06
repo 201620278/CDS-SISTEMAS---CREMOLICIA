@@ -20,6 +20,11 @@ const MiipConfiguracoesRepositoryMod = require('./repositories/MiipConfiguracoes
 const { MiipDecisoesRepository } = require('./repositories/MiipDecisoesRepository');
 const MiipLearningService = require('./services/MiipLearningService');
 const MiipImportacaoXmlService = require('./services/MiipImportacaoXmlService');
+const fs = require('fs');
+const path = require('path');
+const MotorRegistry = require('./core/MotorRegistry');
+const { obterTelemetryService } = require('./core/MiipPipelineFactory');
+const { estaInicializado } = require('./MiipBootstrap');
 
 class MiipService {
   /**
@@ -338,15 +343,118 @@ class MiipService {
   }
 
   /**
-   * @returns {{ pronto: boolean, versao: string, metodos: string[], usarMiip: boolean }}
+   * Health check RC1 — somente leitura; não executa identificação.
+   *
+   * @returns {Promise<Object>}
    */
-  healthCheck() {
+  async healthCheck() {
+    const MIIP_ROOT = path.join(__dirname);
+
+    let inicializado = false;
+    let engines = [];
+
+    try {
+      await this._garantirInicializado();
+      inicializado = estaInicializado();
+      engines = MotorRegistry.listarAtivos().map((motor) => ({
+        codigo: motor.codigo,
+        prioridade: motor.prioridade,
+        ativo: motor.ativo !== false
+      }));
+    } catch (error) {
+      return {
+        pronto: false,
+        versao: '1.0.0-rc1',
+        release: 'RC1',
+        erro: error?.message || 'Falha ao inicializar MIIP',
+        verificadoEm: new Date().toISOString()
+      };
+    }
+
+    const pipelineOk = fs.existsSync(path.join(MIIP_ROOT, 'core/MiipPipeline.js'));
+    const decisionOk = fs.existsSync(path.join(MIIP_ROOT, 'core/DecisionEngine.js'));
+    const explainOk = fs.existsSync(path.join(MIIP_ROOT, 'core/MiipExplainService.js'));
+    const learningOk = fs.existsSync(path.join(MIIP_ROOT, 'services/MiipLearningService.js'));
+
+    let banco = { ok: false, tempoMedioMs: null };
+    try {
+      const db = this._db ?? require('../../database');
+      await db.whenReady();
+      await db.get('SELECT 1 AS ok');
+      const stats = await this._decisoesRepository.agregarEstatisticas();
+      banco = {
+        ok: true,
+        tempoMedioMs: Math.round(Number(stats.tempoMedioMs ?? 0))
+      };
+    } catch (error) {
+      banco = { ok: false, tempoMedioMs: null, erro: error?.message };
+    }
+
+    const registryTotal = MotorRegistry.total();
+    const registryAtivos = MotorRegistry.totalAtivos();
+    const enginesOk = engines.length >= 6 && registryAtivos >= 6;
+
+    let telemetria = { ok: true, execucoesRegistradas: 0, ultimaExecucao: null };
+    try {
+      const historico = obterTelemetryService().obterHistorico();
+      const ultimo = historico.length > 0 ? historico[historico.length - 1] : null;
+      telemetria = {
+        ok: true,
+        execucoesRegistradas: historico.length,
+        ultimaExecucao: ultimo
+          ? {
+            requestId: ultimo.requestId,
+            tempoTotalMs: ultimo.tempoTotal,
+            health: ultimo.health,
+            motores: ultimo.enginesExecutados?.length ?? 0
+          }
+          : null
+      };
+    } catch (error) {
+      telemetria = { ok: false, execucoesRegistradas: 0, erro: error?.message };
+    }
+
+    const componentesOk = pipelineOk && inicializado && enginesOk
+      && decisionOk && explainOk && learningOk && banco.ok && telemetria.ok;
+
+    const statusGeral = componentesOk
+      ? 'ok'
+      : (inicializado ? 'degradado' : 'indisponivel');
+
     return {
-      pronto: true,
+      pronto: componentesOk,
+      statusGeral,
       versao: '1.0.0-rc1',
+      release: 'RC1',
       usarMiip: this.estaHabilitado(),
       usarMiipImportacaoXML: this._featureFlags.obterUsarMiipImportacaoXML(),
       importacaoXmlHabilitada: this.estaImportacaoXmlHabilitada(),
+      tempoMedioMs: banco.tempoMedioMs,
+      verificadoEm: new Date().toISOString(),
+      componentes: {
+        pipeline: { ok: pipelineOk && inicializado },
+        registry: {
+          ok: registryAtivos >= 6,
+          totalRegistrados: registryTotal,
+          totalAtivos: registryAtivos,
+          motores: MotorRegistry.listarAtivos().map((m) => ({
+            codigo: m.codigo,
+            prioridade: m.prioridade,
+            versao: m.versao,
+            ativo: m.ativo !== false
+          }))
+        },
+        engines: {
+          ok: enginesOk,
+          total: engines.length,
+          carregados: engines.map((e) => e.codigo)
+        },
+        decisionEngine: { ok: decisionOk },
+        explain: { ok: explainOk },
+        learning: { ok: learningOk },
+        banco,
+        telemetria
+      },
       metodos: [
         'estaHabilitado',
         'estaImportacaoXmlHabilitada',
@@ -357,7 +465,8 @@ class MiipService {
         'registrarIntegracao',
         'registrarFeedback',
         'obterHistorico',
-        'obterEstatisticas'
+        'obterEstatisticas',
+        'healthCheck'
       ]
     };
   }

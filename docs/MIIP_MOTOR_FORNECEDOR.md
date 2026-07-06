@@ -1,5 +1,8 @@
 # MIIP — Motor Associação por Fornecedor (Sprint 4)
 
+> **MIIP V1.0 RC1** — Documentação congelada. Pipeline oficial com 6 motores. Ver [ARQUITETURA_MIIP.md](./ARQUITETURA_MIIP.md).
+
+
 Segundo engine oficial do MIIP. Reconhece produtos pelo histórico do fornecedor (CNPJ + cProd).
 
 ## Fluxo completo

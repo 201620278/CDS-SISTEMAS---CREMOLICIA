@@ -14,8 +14,8 @@ Todos os repositories estendem `IRepository` e utilizam `dbHelpers.js` para oper
 | `dbHelpers.js` | — | Helpers SQLite compartilhados |
 | `MiipAssociacoesRepository.js` | `miip_associacoes` | Vínculos item externo → produto |
 | `MiipDecisoesRepository.js` | `miip_decisoes` | Auditoria de decisões |
-| `MiipSinonimosRepository.js` | `miip_sinonimos` | Sinônimos e aliases |
-| `MiipEstatisticasRepository.js` | `miip_estatisticas` | Agregados e métricas |
+| `MiipSinonimosRepository.js` | `miip_sinonimos` | **@deprecated RC1** — reservado para futura evolução do MIIP V2; Synonyms usa JSON |
+| `MiipEstatisticasRepository.js` | `miip_estatisticas` | **@deprecated RC1** — reservado para futura evolução do MIIP V2; agregados via `MiipDecisoesRepository` |
 | `MiipConfiguracoesRepository.js` | `miip_configuracoes` | Configuração runtime |
 | `ProdutoRepository.js` | `produtos` | **Leitura oficial** de produtos → `ProdutoSnapshot` |
 | `ProdutoMiipRepository.js` | `produtos` | Shim legado → delega ao `ProdutoRepository` |
