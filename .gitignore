@@ -47,9 +47,11 @@ backend/services/fiscal/debug/
 
 # Build / distribuicao
 dist/
+dist30-06/
 dist-*/
 release/
 out/
+*.zip
 
 # Cache e temporarios
 .cache/
