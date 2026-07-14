@@ -1,0 +1,35 @@
+/**
+ * Estilos do showcase do Design System
+ */
+
+.cds-design-system-page__main {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: var(--spacing-lg, 24px);
+}
+
+.cds-design-system-page__preview {
+  min-height: 400px;
+}
+
+.cds-design-system-page__code {
+  background: var(--color-neutral-900, #0f172a);
+  color: #e2e8f0;
+  padding: var(--spacing-md, 16px);
+  border-radius: var(--radius-lg, 12px);
+  font-size: var(--font-size-sm, 14px);
+  overflow: auto;
+  max-height: 70vh;
+  position: sticky;
+  top: var(--spacing-md, 16px);
+}
+
+@media (max-width: 1024px) {
+  .cds-design-system-page__main {
+    grid-template-columns: 1fr;
+  }
+  .cds-design-system-page__code {
+    position: static;
+    max-height: none;
+  }
+}

@@ -561,12 +561,7 @@ function emitirFiscalManual() {
         url: `${API_URL}/fiscal/emitir/venda/${vendaId}`,
         method: 'POST',
         success: function(resp) {
-            if (resp?.danfeHtml) {
-                imprimirHtmlFiscal(resp.danfeHtml);
-            }
-
-            showNotification(resp?.message || 'Processo fiscal executado.');
-            carregarFiscalNotas();
+            processarPosEmissaoFiscal(vendaId, resp);
         },
         error: function(xhr) {
             showNotification(xhr.responseJSON?.error || 'Erro ao emitir NFC-e.', 'danger');
@@ -664,18 +659,7 @@ function emitirNFCeDaVenda() {
         url: `${API_URL}/fiscal/emitir/venda/${vendaId}`,
         method: 'POST',
         success: function(resp) {
-            if (resp?.danfeHtml) {
-                imprimirHtmlFiscal(resp.danfeHtml);
-            }
-
-            showNotification(resp?.message || 'NFC-e emitida com sucesso!', 'success');
-            carregarFiscalNotas();
-
-            // Limpar cache e dados
-            vendaNFCeCache = null;
-            $('#dados-venda-nfce').html('');
-            $('#btnEmitirNFCe').addClass('d-none');
-            $('#fiscalVendaIdManual').val('');
+            processarPosEmissaoFiscal(vendaId, resp, { limparFormularioManual: true });
         },
         error: function(xhr) {
             showNotification(xhr.responseJSON?.error || 'Erro ao emitir NFC-e.', 'danger');
@@ -683,7 +667,79 @@ function emitirNFCeDaVenda() {
     });
 }
 
+/**
+ * Após emissão no Módulo Fiscal:
+ * 1) cupom fiscal
+ * 2) nota permanece em NFC-e Emitidas
+ * 3) se venda de Prestação → sincroniza e encerra
+ */
+function processarPosEmissaoFiscal(vendaId, resp, opcoes = {}) {
+    const status = String(resp?.status || '').toLowerCase();
+    const autorizada = resp?.success === true || status === 'autorizada' || resp?.reused === true;
+
+    carregarFiscalNotas();
+
+    if (autorizada) {
+        mostrarCupomFiscalPosEmissao(vendaId, resp);
+        showNotification(resp?.message || 'NFC-e autorizada pela SEFAZ!', 'success');
+        encerrarPrestacaoVinculadaAposNfce(vendaId);
+    } else {
+        showNotification(resp?.message || 'NFC-e não autorizada.', 'warning');
+    }
+
+    if (opcoes.limparFormularioManual) {
+        vendaNFCeCache = null;
+        $('#dados-venda-nfce').html('');
+        $('#btnEmitirNFCe').addClass('d-none');
+        $('#fiscalVendaIdManual').val('');
+    }
+}
+
+function mostrarCupomFiscalPosEmissao(vendaId, resp) {
+    if (resp?.danfeHtml) {
+        imprimirHtmlFiscal(resp.danfeHtml);
+        return;
+    }
+    if (typeof imprimirDANFEFiscal === 'function') {
+        imprimirDANFEFiscal(vendaId);
+        return;
+    }
+    window.open(`${API_URL}/fiscal/danfe/venda/${vendaId}`, '_blank', 'noopener,noreferrer');
+}
+
+function encerrarPrestacaoVinculadaAposNfce(vendaId) {
+    if (!vendaId) return;
+
+    const token = localStorage.getItem('token');
+    fetch(`${API_URL}/comercial/vendas/${vendaId}/pos-nfce-autorizada`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ fechar: true })
+    })
+        .then((r) => r.json().catch(() => ({})))
+        .then((json) => {
+            const data = json?.data || json;
+            if (data?.vinculadaPrestacao && data?.fechamento) {
+                showNotification('Prestação encerrada após NFC-e autorizada.', 'success');
+            }
+        })
+        .catch((err) => {
+            console.warn('pos-nfce-autorizada:', err);
+        });
+}
+
 function imprimirHtmlFiscal(html) {
+    if (window.electronAPI?.abrirComprovante) {
+        window.electronAPI.abrirComprovante(html, {
+            silent: false,
+            autoFecharMs: 5000
+        });
+        return;
+    }
+
     const win = window.open('', '_blank', 'width=420,height=800');
 
     if (!win) {

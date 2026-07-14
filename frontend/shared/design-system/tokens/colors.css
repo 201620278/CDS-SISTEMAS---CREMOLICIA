@@ -1,0 +1,165 @@
+/**
+ * CDS Design System — Tokens de Cor
+ * Sprint DS-02 — Consolidação Oficial
+ *
+ * Paletas estáveis (não mudam entre temas) + tokens semânticos (temas sobrescrevem).
+ * NUNCA use neutral-0 (token inválido). Use --color-surface para superfícies elevadas.
+ */
+
+:root {
+  /* ——— Brand / Primary (CDS Blue) ——— */
+  --color-primary-50: #e8f0fe;
+  --color-primary-100: #d2e3fc;
+  --color-primary-200: #aecbfa;
+  --color-primary-300: #8ab4f8;
+  --color-primary-400: #669df6;
+  --color-primary-500: #4285f4;
+  --color-primary-600: #3367d6;
+  --color-primary-700: #2962ff;
+  --color-primary-800: #1a73e8;
+  --color-primary-900: #174ea6;
+
+  /* ——— Secondary (Violet) ——— */
+  --color-secondary-50: #f3e8ff;
+  --color-secondary-100: #e9d5ff;
+  --color-secondary-200: #d8b4fe;
+  --color-secondary-300: #c084fc;
+  --color-secondary-400: #a855f7;
+  --color-secondary-500: #9333ea;
+  --color-secondary-600: #7e22ce;
+  --color-secondary-700: #6b21a8;
+  --color-secondary-800: #581c87;
+  --color-secondary-900: #4c1d95;
+
+  /* ——— Success ——— */
+  --color-success-50: #f0fdf4;
+  --color-success-100: #dcfce7;
+  --color-success-200: #bbf7d0;
+  --color-success-300: #86efac;
+  --color-success-400: #4ade80;
+  --color-success-500: #22c55e;
+  --color-success-600: #16a34a;
+  --color-success-700: #15803d;
+  --color-success-800: #166534;
+  --color-success-900: #14532d;
+
+  /* ——— Warning ——— */
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-300: #fcd34d;
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+  --color-warning-800: #92400e;
+  --color-warning-900: #78350f;
+
+  /* ——— Error / Danger ——— */
+  --color-error-50: #fef2f2;
+  --color-error-100: #fee2e2;
+  --color-error-200: #fecaca;
+  --color-error-300: #fca5a5;
+  --color-error-400: #f87171;
+  --color-error-500: #ef4444;
+  --color-error-600: #dc2626;
+  --color-error-700: #b91c1c;
+  --color-error-800: #991b1b;
+  --color-error-900: #7f1d1d;
+
+  /* ——— Neutral ——— */
+  --color-neutral-000: #ffffff;
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+
+  /* ——— Accent CDS (Gold) ——— */
+  --color-accent-50: #fffbeb;
+  --color-accent-100: #ffe08a;
+  --color-accent-200: #f5d06a;
+  --color-accent-300: #e8b84a;
+  --color-accent-400: #d9a53a;
+  --color-accent-500: #c9922e;
+  --color-accent-600: #a87824;
+  --color-accent-700: #875e1c;
+  --color-accent-800: #664516;
+  --color-accent-900: #452e0f;
+
+  /* ——— Status operacionais ——— */
+  --color-status-active: var(--color-success-500);
+  --color-status-inactive: var(--color-neutral-500);
+  --color-status-pending: var(--color-warning-500);
+  --color-status-blocked: var(--color-error-500);
+  --color-status-draft: var(--color-secondary-500);
+  --color-status-completed: var(--color-success-600);
+  --color-status-cancelled: var(--color-error-500);
+
+  /* ——— Semânticos (defaults = Classic; temas sobrescrevem) ——— */
+  --color-bg: var(--color-neutral-50);
+  --color-bg-elevated: var(--color-neutral-000);
+  --color-surface: var(--color-neutral-000);
+  --color-surface-muted: var(--color-neutral-100);
+  --color-surface-hover: var(--color-neutral-50);
+  --color-border: var(--color-neutral-200);
+  --color-border-strong: var(--color-neutral-300);
+  --color-border-focus: var(--color-primary-500);
+
+  --color-text: var(--color-neutral-900);
+  --color-text-secondary: var(--color-neutral-600);
+  --color-text-muted: var(--color-neutral-500);
+  --color-text-inverse: var(--color-neutral-50);
+  --color-text-disabled: var(--color-neutral-400);
+
+  --color-overlay: rgba(15, 23, 42, 0.45);
+  --color-focus-ring: rgba(66, 133, 244, 0.35);
+
+  --color-hover: var(--color-primary-50);
+  --color-hover-strong: var(--color-primary-100);
+  --color-focus: var(--color-primary-500);
+  --color-disabled: var(--color-neutral-300);
+  --color-disabled-bg: var(--color-neutral-100);
+  --color-disabled-text: var(--color-neutral-500);
+
+  --color-scrollbar: var(--color-neutral-300);
+  --color-scrollbar-thumb: var(--color-neutral-400);
+
+  /* ——— Ação ——— */
+  --color-action: var(--color-primary-600);
+  --color-action-hover: var(--color-primary-700);
+  --color-action-active: var(--color-primary-800);
+  --color-action-text: var(--color-text-inverse);
+
+  --color-danger: var(--color-error-600);
+  --color-danger-hover: var(--color-error-700);
+  --color-warning: var(--color-warning-600);
+  --color-warning-hover: var(--color-warning-700);
+  --color-success: var(--color-success-600);
+  --color-success-hover: var(--color-success-700);
+  --color-success-action: var(--color-success-600);
+  --color-success-action-hover: var(--color-success-700);
+
+  /* ——— Feedback surfaces ——— */
+  --color-info-bg: var(--color-primary-50);
+  --color-info-border: var(--color-primary-200);
+  --color-info-text: var(--color-primary-800);
+  --color-success-bg: var(--color-success-50);
+  --color-success-border: var(--color-success-200);
+  --color-success-text: var(--color-success-800);
+  --color-warning-bg: var(--color-warning-50);
+  --color-warning-border: var(--color-warning-200);
+  --color-warning-text: var(--color-warning-800);
+  --color-error-bg: var(--color-error-50);
+  --color-error-border: var(--color-error-200);
+  --color-error-text: var(--color-error-800);
+
+  /* ——— Skeleton / shimmer ——— */
+  --color-skeleton-base: var(--color-neutral-200);
+  --color-skeleton-highlight: var(--color-neutral-100);
+}

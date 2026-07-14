@@ -146,7 +146,7 @@ ipcMain.handle('rede-salvar-modo-estacao', async (_event, body = {}) => {
 
 function obterPortaServidor() {
   const porta = Number.parseInt(process.env.PORT, 10);
-  return Number.isFinite(porta) && porta > 0 ? porta : 3001;
+  return Number.isFinite(porta) && porta > 0 ? porta : 3002;
 }
 
 function checarPortaLivre(porta) {
@@ -260,7 +260,7 @@ function carregarConfiguracaoServidor(modulo = 'erp') {
     return estacao;
   } catch (err) {
     console.warn('Não foi possível ler config da estação, usando modo local.', err.message);
-    return { modo: 'local', ipServidor: '127.0.0.1', porta: 3001 };
+    return { modo: 'local', ipServidor: '127.0.0.1', porta: 3002 };
   }
 }
 

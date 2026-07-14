@@ -228,7 +228,18 @@ async function imprimirCupomNaoFiscal(vendaId, venda, total, desconto) {
             vendaCupom = { ...venda, ...empresa };
         }
 
-        await enviarCupomNaoFiscalParaImpressora(vendaId, vendaCupom, total, desconto);
+        const itensNf = montarItensCupomNaoFiscal(vendaCupom);
+        const totalNf = obterTotalCupomNaoFiscal(vendaCupom);
+        const totalEfetivo = totalNf > 0
+          ? totalNf
+          : Number(total != null ? total : vendaCupom.total || 0);
+
+        await enviarCupomNaoFiscalParaImpressora(
+          vendaId,
+          { ...vendaCupom, itens: itensNf.length ? itensNf : (vendaCupom.itens || []) },
+          totalEfetivo,
+          Number(desconto != null ? desconto : vendaCupom.desconto || 0)
+        );
     } catch (error) {
         console.error('Erro ao imprimir cupom não fiscal:', error);
         if (typeof showNotification === 'function') {

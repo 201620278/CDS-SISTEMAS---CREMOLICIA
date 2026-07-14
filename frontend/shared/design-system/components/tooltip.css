@@ -1,0 +1,98 @@
+/**
+ * CDS Design System — Tooltip
+ * Sprint UX/UI 2.0.1
+ */
+
+.cds-tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+.cds-tooltip__content {
+  position: absolute;
+  z-index: var(--z-tooltip);
+  max-width: 240px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-family: var(--font-family-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-inverse);
+  background-color: var(--color-neutral-900);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  white-space: normal;
+  opacity: 0;
+  transform: scale(0.96);
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--easing-out),
+    transform var(--duration-fast) var(--easing-out);
+}
+
+[data-theme='dark'] .cds-tooltip__content,
+.theme-dark .cds-tooltip__content {
+  background-color: var(--color-neutral-100);
+  color: var(--color-neutral-900);
+}
+
+[data-theme='high-contrast'] .cds-tooltip__content,
+.theme-high-contrast .cds-tooltip__content {
+  background-color: var(--color-text);
+  color: var(--color-text-inverse);
+  border: var(--border-width-thin) solid var(--color-text-inverse);
+}
+
+.cds-tooltip:hover .cds-tooltip__content,
+.cds-tooltip:focus-within .cds-tooltip__content,
+.cds-tooltip.is-open .cds-tooltip__content {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.cds-tooltip__content--top {
+  bottom: calc(100% + var(--spacing-xs));
+  left: 50%;
+  transform: translateX(-50%) scale(0.96);
+}
+
+.cds-tooltip:hover .cds-tooltip__content--top,
+.cds-tooltip:focus-within .cds-tooltip__content--top,
+.cds-tooltip.is-open .cds-tooltip__content--top {
+  transform: translateX(-50%) scale(1);
+}
+
+.cds-tooltip__content--bottom {
+  top: calc(100% + var(--spacing-xs));
+  left: 50%;
+  transform: translateX(-50%) scale(0.96);
+}
+
+.cds-tooltip:hover .cds-tooltip__content--bottom,
+.cds-tooltip:focus-within .cds-tooltip__content--bottom,
+.cds-tooltip.is-open .cds-tooltip__content--bottom {
+  transform: translateX(-50%) scale(1);
+}
+
+.cds-tooltip__content--left {
+  right: calc(100% + var(--spacing-xs));
+  top: 50%;
+  transform: translateY(-50%) scale(0.96);
+}
+
+.cds-tooltip:hover .cds-tooltip__content--left,
+.cds-tooltip:focus-within .cds-tooltip__content--left,
+.cds-tooltip.is-open .cds-tooltip__content--left {
+  transform: translateY(-50%) scale(1);
+}
+
+.cds-tooltip__content--right {
+  left: calc(100% + var(--spacing-xs));
+  top: 50%;
+  transform: translateY(-50%) scale(0.96);
+}
+
+.cds-tooltip:hover .cds-tooltip__content--right,
+.cds-tooltip:focus-within .cds-tooltip__content--right,
+.cds-tooltip.is-open .cds-tooltip__content--right {
+  transform: translateY(-50%) scale(1);
+}

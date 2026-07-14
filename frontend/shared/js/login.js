@@ -27,15 +27,29 @@ const API_URL = (() => {
   window.location.replace(destino);
 })();
 
+function setLoginLoading(isLoading) {
+  const $btn = $('#btn-entrar');
+  $btn.prop('disabled', isLoading);
+  $btn.toggleClass('is-loading', isLoading);
+  $btn.attr('aria-busy', isLoading ? 'true' : 'false');
+}
+
+function showLoginError(message) {
+  const $err = $('#login-error');
+  $err.addClass('is-visible').text(message);
+}
+
+function hideLoginError() {
+  $('#login-error').removeClass('is-visible').text('');
+}
+
 $('#loginForm').on('submit', function(e) {
   e.preventDefault();
   const username = $('#username').val().trim();
   const password = $('#password').val();
-  const $err = $('#login-error');
-  const $btn = $('#btn-entrar');
 
-  $err.addClass('d-none').text('');
-  $btn.prop('disabled', true);
+  hideLoginError();
+  setLoginLoading(true);
 
   $.ajax({
     url: `${API_URL}/auth/login`,
@@ -56,10 +70,10 @@ $('#loginForm').on('submit', function(e) {
       const msg = xhr.responseJSON && xhr.responseJSON.error
         ? xhr.responseJSON.error
         : 'Não foi possível entrar. Verifique o servidor.';
-      $err.removeClass('d-none').text(msg);
+      showLoginError(msg);
     },
     complete: function() {
-      $btn.prop('disabled', false);
+      setLoginLoading(false);
     }
   });
 });

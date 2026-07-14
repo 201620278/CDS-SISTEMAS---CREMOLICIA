@@ -1,0 +1,35 @@
+/**
+ * CDS Design System — Tokens de Transição
+ * Sprint UX/UI 2.0.1 — Fundação Visual Cremolícia
+ *
+ * Preferir transform + opacity para animação no Electron.
+ */
+
+:root {
+  --duration-instant: 0ms;
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --duration-slow: 500ms;
+  --duration-slower: 700ms;
+
+  --easing-linear: linear;
+  --easing-ease: ease;
+  --easing-in: cubic-bezier(0.4, 0, 1, 1);
+  --easing-out: cubic-bezier(0, 0, 0.2, 1);
+  --easing-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --transition-fast: var(--duration-fast) var(--easing-out);
+  --transition-normal: var(--duration-normal) var(--easing-in-out);
+  --transition-slow: var(--duration-slow) var(--easing-in-out);
+
+  --transition-opacity: opacity var(--transition-fast);
+  --transition-transform: transform var(--transition-fast);
+  --transition-colors: background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+  --transition-theme: background-color var(--duration-normal) var(--easing-in-out),
+    color var(--duration-normal) var(--easing-in-out),
+    border-color var(--duration-normal) var(--easing-in-out),
+    box-shadow var(--duration-normal) var(--easing-in-out);
+}

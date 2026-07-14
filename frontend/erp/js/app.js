@@ -111,11 +111,27 @@ function loadPage(page) {
                     buscarCaixas();
                 }
             });
+        case 'comercial-dashboard':
+        case 'comercial-clientes':
+        case 'comercial-consignacao-nova':
+        case 'comercial-consignacao-lista':
+        case 'comercial-acertos':
+        case 'comercial-conta-corrente':
+        case 'comercial-perdas':
+        case 'comercial-cortesias':
+        case 'comercial-relatorios':
+        case 'comercial-pendencias':
+        case 'comercial-recomendacoes':
+        case 'comercial-playbooks':
+            return typeof loadComercial === 'function'
+                ? loadComercial(page)
+                : $('#page-content').html('<div class="alert alert-danger">Erro ao carregar módulo Comercial.</div>');
         default:
             $('#page-content').html('<div class="alert alert-warning">Página não encontrada.</div>');
     }
 }
 
 $(document).ready(function () {
-    inicializarShellModulo({ defaultPage: 'dashboard' });
+    const pendingClienteId = sessionStorage.getItem('cds-erp-cliente-id');
+    inicializarShellModulo({ defaultPage: pendingClienteId ? 'clientes' : 'dashboard' });
 });

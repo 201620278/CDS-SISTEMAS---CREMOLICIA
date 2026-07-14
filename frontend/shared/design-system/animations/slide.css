@@ -1,0 +1,86 @@
+/**
+ * CDS Design System — Slide animations
+ * Sprint UX/UI 2.0.1 — transform + opacity
+ */
+
+@keyframes cds-slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cds-slide-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cds-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes cds-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes cds-slide-out-up {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+}
+
+.cds-anim-slide-up {
+  animation: cds-slide-in-up var(--duration-normal) var(--easing-out) both;
+}
+
+.cds-anim-slide-down {
+  animation: cds-slide-in-down var(--duration-normal) var(--easing-out) both;
+}
+
+.cds-anim-slide-left {
+  animation: cds-slide-in-left var(--duration-normal) var(--easing-out) both;
+}
+
+.cds-anim-slide-right {
+  animation: cds-slide-in-right var(--duration-normal) var(--easing-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cds-anim-slide-up,
+  .cds-anim-slide-down,
+  .cds-anim-slide-left,
+  .cds-anim-slide-right {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

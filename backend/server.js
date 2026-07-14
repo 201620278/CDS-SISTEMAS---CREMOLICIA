@@ -11,7 +11,7 @@ const { isCorsOriginAllowed } = require('./config/secrets');
 const { verificarToken } = require('./middleware/auth');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 // Middleware
 app.use((req, res, next) => {
@@ -116,6 +116,7 @@ const centralEntradasRoutes = require('./rotas/central-entradas');
 const equipamentosRoutes = require('./rotas/equipamentos');
 const laboratorioEquipamentosRoutes = require('./rotas/laboratorioEquipamentos');
 const engenhariaReversaRoutes = require('./rotas/engenhariaReversa');
+const comercialRoutes = require('./motores/motor-comercial/routes/comercial.routes');
 const licencaMiddleware = require('./middleware/licencaMiddleware');
 const configuracoesAvancadasRoutes = require('./rotas/configuracoes_avancadas');
 const { exigirRecurso } = require('./middleware/validarRecursoImplantacao');
@@ -167,6 +168,7 @@ app.use('/api/central-entradas', verificarToken, exigirRecurso('fiscal'), centra
 app.use('/api/equipamentos', verificarToken, equipamentosRoutes);
 app.use('/api/laboratorio-equipamentos', verificarToken, laboratorioEquipamentosRoutes);
 app.use('/api/engenharia-reversa', verificarToken, engenhariaReversaRoutes);
+app.use('/api/comercial', verificarToken, comercialRoutes);
 
 // Rotas de licença (públicas)
 app.use('/api/licenca', licencaRoutes);
@@ -215,6 +217,7 @@ const server = http.createServer(app);
 module.exports = server;
 
 const motorEquipamentos = require('./motores/equipamentos');
+const motorComercial = require('./motores/motor-comercial');
 const monitorService = require('./motores/equipamentos/monitor/MonitorService');
 const driverManager = require('./motores/equipamentos/core/DriverManager');
 
@@ -223,6 +226,10 @@ async function inicializarMotorEquipamentos() {
     driverManager.obterRelatorioCarregamento();
     monitorService.iniciar();
     console.log('Motor de Equipamentos inicializado (fila, drivers, monitor).');
+}
+
+async function inicializarMotorComercial() {
+    await motorComercial.inicializar({ db });
 }
 
 const { sincronizarFinanceiroVendasCanceladas } = require('./services/vendas/VendaFinanceiroService');
@@ -253,6 +260,14 @@ db.whenReady(async (readyErr) => {
         await inicializarMotorEquipamentos();
     } catch (err) {
         console.error('Falha ao inicializar Motor de Equipamentos:', err.message);
+    }
+
+    try {
+        await inicializarMotorComercial();
+    } catch (err) {
+        console.error('ERRO: Inicialização do Motor Comercial cancelada.');
+        console.error(err.message);
+        process.exit(1);
     }
 
     try {

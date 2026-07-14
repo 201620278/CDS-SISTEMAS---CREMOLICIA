@@ -1,0 +1,458 @@
+/**
+ * Consignacoes Page Styles
+ *
+ * Sprint O-3: Central de Operações Comerciais — Cockpit Operacional.
+ *
+ * @module frontend/modules/motor-comercial/pages/Consignacoes
+ */
+
+/* Cockpit Layout */
+.cds-cockpit-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.cds-cockpit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--spacing-lg);
+  width: 100%;
+}
+
+.cds-cockpit-header__left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.cds-cockpit-header__title {
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-neutral-900);
+}
+
+.cds-cockpit-header__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-600);
+}
+
+.cds-cockpit-header__updated {
+  color: var(--color-neutral-500);
+  font-size: var(--font-size-xs);
+}
+
+.cds-cockpit-header__actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.cds-cockpit-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md);
+}
+
+.cds-cockpit-sidebar__title {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-neutral-700);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cds-cockpit-sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-neutral-700);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s;
+}
+
+.cds-cockpit-sidebar__item:hover {
+  background-color: var(--color-neutral-100);
+}
+
+.cds-cockpit-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-xs);
+  color: var(--color-neutral-500);
+  width: 100%;
+}
+
+/* Operational Cards */
+.cds-cockpit-cards__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-md);
+}
+
+/* Visual Indicators */
+.cds-cockpit-indicator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--color-neutral-300);
+}
+
+.cds-cockpit-indicator--aberta {
+  background-color: var(--color-warning-500);
+}
+
+.cds-cockpit-indicator--atrasada {
+  background-color: var(--color-error-500);
+}
+
+.cds-cockpit-indicator--urgente {
+  background-color: var(--color-error-700);
+  box-shadow: 0 0 0 2px var(--color-error-200);
+}
+
+/* Cockpit Drawer */
+.cds-cockpit-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  min-height: 300px;
+}
+
+.cds-cockpit-drawer__panel {
+  flex: 1;
+}
+
+.cds-cockpit-drawer__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-md);
+}
+
+.cds-cockpit-drawer__field label {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-600);
+  margin-bottom: var(--spacing-xs);
+}
+
+.cds-cockpit-drawer__field > div {
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-900);
+}
+
+.cds-cockpit-drawer__cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--spacing-md);
+}
+
+.cds-cockpit-drawer__item,
+.cds-cockpit-drawer__mov,
+.cds-cockpit-drawer__audit {
+  padding: var(--spacing-sm);
+  background-color: var(--color-neutral-50);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.cds-cockpit-drawer__item-meta,
+.cds-cockpit-drawer__audit-meta {
+  display: flex;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-neutral-500);
+}
+
+.cds-cockpit-drawer__actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+}
+
+/* Consignacoes Header (legacy) */
+.cds-consignacoes-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-lg) 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+
+.cds-consignacoes-header__title {
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-neutral-900);
+}
+
+.cds-consignacoes-header__info {
+  display: flex;
+  gap: var(--spacing-lg);
+  align-items: center;
+}
+
+.cds-consignacoes-header__count {
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-600);
+  font-weight: var(--font-weight-medium);
+}
+
+.cds-consignacoes-header__updated {
+  font-size: var(--font-size-xs);
+  color: var(--color-neutral-500);
+}
+
+.cds-consignacoes-header__actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+/* Consignacoes Filters */
+.cds-consignacoes-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+}
+
+.cds-consignacoes-filters__row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-md);
+}
+
+.cds-consignacoes-filters__row--search {
+  grid-template-columns: 1fr;
+}
+
+.cds-consignacoes-filters__field--wide {
+  grid-column: 1 / -1;
+}
+
+.cds-consignacoes-filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.cds-consignacoes-filters__field label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-700);
+}
+
+.cds-consignacoes-filters__select,
+.cds-consignacoes-filters__input {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  background-color: var(--color-surface);
+}
+
+.cds-consignacoes-filters__select:focus,
+.cds-consignacoes-filters__input:focus {
+  outline: none;
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 2px var(--color-primary-100);
+}
+
+.cds-consignacoes-filters__actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+  padding-top: var(--spacing-sm);
+  border-top: 1px solid var(--color-neutral-200);
+}
+
+/* Consignacoes Content */
+.cds-consignacoes-content {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  min-height: 400px;
+}
+
+/* Consignacao Drawer */
+.cds-consignacao-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.cds-consignacao-drawer__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.cds-consignacao-drawer__section-title {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-neutral-900);
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+
+.cds-consignacao-drawer__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-md);
+}
+
+.cds-consignacao-drawer__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.cds-consignacao-drawer__field label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-600);
+}
+
+.cds-consignacao-drawer__field-value {
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-900);
+}
+
+.cds-consignacao-drawer__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.cds-consignacao-drawer__item {
+  padding: var(--spacing-sm);
+  background-color: var(--color-neutral-50);
+  border-radius: var(--radius-md);
+}
+
+.cds-consignacao-drawer__item-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-900);
+  margin-bottom: var(--spacing-xs);
+}
+
+.cds-consignacao-drawer__item-details {
+  display: flex;
+  gap: var(--spacing-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-neutral-600);
+}
+
+.cds-consignacao-drawer__movements {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.cds-consignacao-drawer__movement {
+  padding: var(--spacing-sm);
+  background-color: var(--color-neutral-50);
+  border-radius: var(--radius-md);
+}
+
+.cds-consignacao-drawer__movement-date {
+  font-size: var(--font-size-xs);
+  color: var(--color-neutral-500);
+  margin-bottom: var(--spacing-xs);
+}
+
+.cds-consignacao-drawer__movement-type {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-900);
+  margin-bottom: var(--spacing-xs);
+}
+
+.cds-consignacao-drawer__movement-desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-600);
+}
+
+.cds-consignacao-drawer__footer {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+}
+
+/* Responsive */
+@media (max-width: 1280px) {
+  .cds-cockpit-cards__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cds-consignacoes-filters__row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cds-consignacao-drawer__grid,
+  .cds-cockpit-drawer__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cds-cockpit-drawer__cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 1024px) {
+  .cds-consignacoes-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+  }
+
+  .cds-consignacoes-header__info {
+    flex-wrap: wrap;
+  }
+
+  .cds-consignacoes-filters__row {
+    grid-template-columns: 1fr;
+  }
+
+  .cds-consignacoes-filters__actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 768px) {
+  .cds-consignacoes-header__actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .cds-consignacoes-header__actions button {
+    width: 100%;
+  }
+
+  .cds-consignacao-drawer__footer {
+    flex-direction: column;
+  }
+
+  .cds-consignacao-drawer__footer button {
+    width: 100%;
+  }
+}

@@ -155,7 +155,7 @@ ipcMain.handle('rede-salvar-modo-estacao', async (_event, body = {}) => {
 
 function obterPortaServidor() {
   const porta = Number.parseInt(process.env.PORT, 10);
-  return Number.isFinite(porta) && porta > 0 ? porta : 3001;
+  return Number.isFinite(porta) && porta > 0 ? porta : 3002;
 }
 
 function esperarServidor(url, timeout = 15000) {
@@ -344,7 +344,7 @@ function carregarConfiguracaoServidor(modulo = 'erp') {
     return {
       modo: 'local',
       ipServidor: '127.0.0.1',
-      porta: 3001
+      porta: 3002
     };
   }
 }

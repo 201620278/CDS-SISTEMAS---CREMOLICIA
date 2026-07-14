@@ -1,0 +1,230 @@
+/**
+ * Central de Pendências — estilos Sprint O-8.
+ */
+
+.cds-pendencias-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 0;
+}
+
+.cds-pendencias-header__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.cds-pendencias-header__subtitle {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.cds-pendencias-header__updated {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.cds-pendencias-header__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.cds-pendencias-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cds-pendencias-sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.cds-pendencias-sidebar__item--active,
+.cds-pendencias-sidebar__item:hover {
+  background: var(--color-surface-muted, var(--color-neutral-100));
+}
+
+.cds-pendencias-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.cds-pendencias-section__title {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+}
+
+.cds-pendencias-filters__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.cds-pendencias-filters__field label {
+  display: block;
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+  color: var(--color-muted);
+}
+
+.cds-pendencias-filters__select,
+.cds-pendencias-filters__input {
+  min-width: 140px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.cds-pendencias-resumo {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.cds-pendencias-proximas {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cds-pendencias-proxima {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
+.cds-pendencias-proxima__rank {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  min-width: 2rem;
+}
+
+.cds-pendencias-proxima__body {
+  flex: 1;
+}
+
+.cds-pendencias-proxima__body p {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.cds-pendencias-row-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.cds-pendencias-drawer__section {
+  margin-bottom: 1.25rem;
+}
+
+.cds-pendencias-drawer__section h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.cds-pendencias-drawer__badges {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.cds-pendencias-drawer__kpis {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.cds-pendencias-drawer__links,
+.cds-pendencias-drawer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cds-pendencias-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.cds-pendencias-badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--color-text-inverse);
+  background: var(--color-danger);
+  border-radius: 999px;
+}
+
+.cds-cockpit-pendencias {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.cds-cockpit-pendencias--alert .cds-pendencias-badge-count {
+  background: var(--color-danger);
+}
+
+.cds-executive-pendencias-card {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+
+.cds-executive-pendencias-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.cds-cliente360-pendencias-panel {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .cds-pendencias-resumo {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cds-cliente360-pendencias-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .cds-pendencias-header {
+    flex-direction: column;
+  }
+
+  .cds-pendencias-proxima {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

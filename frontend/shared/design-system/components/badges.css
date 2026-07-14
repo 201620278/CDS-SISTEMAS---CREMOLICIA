@@ -1,0 +1,73 @@
+/**
+ * CDS Design System — Badges
+ * Sprint UX/UI 2.0.1
+ */
+
+.cds-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  min-height: 22px;
+  padding: 0 var(--spacing-sm);
+  font-family: var(--font-family-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  letter-spacing: var(--letter-spacing-wide);
+  border-radius: var(--radius-full);
+  border: var(--border-width-thin) solid transparent;
+  white-space: nowrap;
+}
+
+.cds-badge--sm {
+  min-height: 18px;
+  padding: 0 var(--spacing-xs);
+  font-size: var(--font-size-xs);
+}
+
+.cds-badge--lg {
+  min-height: 28px;
+  padding: 0 var(--spacing-md);
+  font-size: var(--font-size-sm);
+}
+
+.cds-badge--neutral {
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+}
+
+.cds-badge--info,
+.cds-badge--primary {
+  background-color: var(--color-info-bg);
+  color: var(--color-info-text);
+}
+
+.cds-badge--success {
+  background-color: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.cds-badge--warning {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.cds-badge--error,
+.cds-badge--danger {
+  background-color: var(--color-error-bg);
+  color: var(--color-error-text);
+}
+
+.cds-badge--outline {
+  background-color: transparent;
+  border-color: currentColor;
+}
+
+.cds-badge--dot::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: currentColor;
+}

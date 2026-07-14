@@ -1,0 +1,63 @@
+/**
+ * CDS Design System — Scale animations
+ * Sprint UX/UI 2.0.1 — transform + opacity
+ */
+
+@keyframes cds-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes cds-scale-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.cds-anim-scale-in {
+  animation: cds-scale-in var(--duration-normal) var(--easing-out) both;
+  transform-origin: center;
+}
+
+.cds-anim-scale-out {
+  animation: cds-scale-out var(--duration-fast) var(--easing-in) both;
+  transform-origin: center;
+}
+
+.cds-anim-scale {
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity var(--duration-normal) var(--easing-out),
+    transform var(--duration-normal) var(--easing-out);
+}
+
+.cds-anim-scale.is-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cds-anim-scale-in,
+  .cds-anim-scale-out {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .cds-anim-scale {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+}

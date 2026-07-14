@@ -121,6 +121,76 @@ function reduzirEstoqueDistribuido(
 
 }
 
+/** STAB-06 — estoque já baixado na Entrega de consignação */
+function isPoliticaEstoqueJaBaixado(body = {}) {
+  const politica = body.politicaEstoque
+    || (body.metadata && body.metadata.politicaEstoque)
+    || null;
+  return String(politica || '').toUpperCase() === 'JA_BAIXADO_CONSIGNACAO';
+}
+
+function isOrigemConsignacao(body = {}) {
+  const origem = body.origem || (body.metadata && body.metadata.origem) || '';
+  return String(origem).toUpperCase() === 'CONSIGNACAO'
+    || String(origem).toUpperCase() === 'CONSIGNACAO_PRESTACAO';
+}
+
+function distribuirItemSemBaixaEstoque(item, vendaFiscal) {
+  const qtd = Number(item.quantidade || 0);
+  const preco = Number(item.preco_unitario || 0);
+  const subtotal = Number((qtd * preco).toFixed(2));
+  let qFiscal = item.quantidade_fiscal != null ? Number(item.quantidade_fiscal) : null;
+  let qNao = item.quantidade_nao_fiscal != null ? Number(item.quantidade_nao_fiscal) : null;
+
+  if (qFiscal == null && qNao == null) {
+    if (parseVendaFiscalFlag(vendaFiscal)) {
+      qFiscal = qtd;
+      qNao = 0;
+    } else {
+      qFiscal = 0;
+      qNao = qtd;
+    }
+  } else {
+    qFiscal = Number(qFiscal || 0);
+    qNao = Number(qNao || 0);
+    if (Math.abs((qFiscal + qNao) - qtd) > 0.0001) {
+      qNao = Math.max(0, qtd - qFiscal);
+    }
+  }
+
+  const valorFiscal = Number((qFiscal * preco).toFixed(2));
+  const valorNaoFiscal = Number((subtotal - valorFiscal).toFixed(2));
+
+  return {
+    ...item,
+    quantidade_fiscal: qFiscal,
+    quantidade_nao_fiscal: qNao,
+    valor_fiscal: valorFiscal,
+    valor_nao_fiscal: valorNaoFiscal,
+    subtotal: item.subtotal != null ? item.subtotal : subtotal
+  };
+}
+
+function reduzirEstoqueDistribuidoRespeitandoPolitica(
+  pularBaixa,
+  vendaItemId,
+  produtoId,
+  quantidadeFiscal,
+  quantidadeNaoFiscal,
+  callback
+) {
+  if (pularBaixa) {
+    return callback(null);
+  }
+  return reduzirEstoqueDistribuido(
+    vendaItemId,
+    produtoId,
+    quantidadeFiscal,
+    quantidadeNaoFiscal,
+    callback
+  );
+}
+
 function atualizarStatusPagamentoVenda(vendaId, status, tefTransacaoId) {
   if (tefTransacaoId) {
     db.run(
@@ -144,44 +214,139 @@ function flattenRecebimentos(recebimentos) {
   return recebimentos.flatMap((item) => (Array.isArray(item) ? item : [item]));
 }
 
-function gravarRecebimentos(vendaId, recebimentos, callback) {
+function gravarRecebimentos(vendaId, recebimentos, callback, opcoes = {}) {
   const lista = flattenRecebimentos(recebimentos);
-  let index = 0;
+  const substituir = opcoes.substituir === true;
 
-  function next() {
-    if (index >= lista.length) {
-      callback(null);
+  function inserirTodos(errLimpeza) {
+    if (errLimpeza) {
+      callback(errLimpeza);
       return;
     }
 
-    const r = lista[index++];
+    let index = 0;
 
-    db.run(`
-      INSERT INTO venda_recebimentos
-      (
-        venda_id,
-        tipo_recebimento,
-        forma_pagamento,
-        valor,
-        tef_transacao_id,
-        nsu,
-        autorizacao,
-        status
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      vendaId,
-      r.tipo_recebimento,
-      r.forma_pagamento,
-      Number(r.valor || 0),
-      r.tef_transacao_id || null,
-      r.nsu || null,
-      r.autorizacao || null,
-      'aprovado'
-    ], next);
+    function next(err) {
+      if (err) {
+        callback(err);
+        return;
+      }
+      if (index >= lista.length) {
+        callback(null);
+        return;
+      }
+
+      const r = lista[index++];
+
+      db.run(`
+        INSERT INTO venda_recebimentos
+        (
+          venda_id,
+          tipo_recebimento,
+          forma_pagamento,
+          valor,
+          tef_transacao_id,
+          nsu,
+          autorizacao,
+          status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        vendaId,
+        r.tipo_recebimento,
+        r.forma_pagamento,
+        Number(r.valor || 0),
+        r.tef_transacao_id || null,
+        r.nsu || null,
+        r.autorizacao || null,
+        'aprovado'
+      ], next);
+    }
+
+    next();
   }
 
-  next();
+  if (substituir) {
+    // Remove órfãos de venda_id reutilizado (DELETE vendas sem cascade efetivo)
+    db.run(
+      'DELETE FROM venda_recebimentos WHERE venda_id = ?',
+      [vendaId],
+      inserirTodos
+    );
+    return;
+  }
+
+  inserirTodos(null);
+}
+
+/**
+ * Origem do grupo <pag>: persistir o que o Orquestrador rateou (recebimentos),
+ * nunca o array bruto acumulado do body quando já houver recebimentos.
+ */
+function resolverListaPagamentosPersistencia(recebimentos, pagamentosVenda) {
+  const listaRecebimentos = flattenRecebimentos(recebimentos).filter(
+    (r) => Number(r.valor || 0) > 0
+  );
+  if (listaRecebimentos.length > 0) {
+    return listaRecebimentos;
+  }
+  return (Array.isArray(pagamentosVenda) ? pagamentosVenda : []).filter(
+    (p) => Number(p.valor || 0) > 0
+  );
+}
+
+function inserirLinhasVendaPagamentos(vendaId, lista, formaFallback, totalFallback, tef) {
+  if (Array.isArray(lista) && lista.length > 0) {
+    const stmtPagamentos = db.prepare(`
+      INSERT INTO venda_pagamentos (
+        venda_id, forma_pagamento, valor,
+        tef_transacao_id, tef_nsu, tef_autorizacao,
+        tef_bandeira, tef_adquirente,
+        tef_comprovante_cliente, tef_comprovante_estabelecimento
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    lista.forEach((p) => {
+      stmtPagamentos.run(
+        vendaId,
+        p.forma_pagamento,
+        Number(p.valor || 0),
+        p.tef_transacao_id || p.tef?.transacao_id || null,
+        p.nsu || p.tef?.nsu || null,
+        p.autorizacao || p.tef?.autorizacao || null,
+        p.bandeira || p.tef?.bandeira || null,
+        p.adquirente || p.tef?.adquirente || null,
+        p.tef?.comprovante_cliente || null,
+        p.tef?.comprovante_estabelecimento || null
+      );
+    });
+
+    stmtPagamentos.finalize();
+    return;
+  }
+
+  db.run(
+    `
+    INSERT INTO venda_pagamentos (
+      venda_id, forma_pagamento, valor,
+      tef_transacao_id, tef_nsu, tef_autorizacao,
+      tef_bandeira, tef_adquirente,
+      tef_comprovante_cliente, tef_comprovante_estabelecimento
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      vendaId,
+      formaFallback,
+      Number(totalFallback || 0),
+      tef?.transacao_id || null,
+      tef?.nsu || null,
+      tef?.autorizacao || null,
+      tef?.bandeira || null,
+      tef?.adquirente || null,
+      tef?.comprovante_cliente || null,
+      tef?.comprovante_estabelecimento || null
+    ]
+  );
 }
 
 // TEF exclusivo para recebimentos fiscais (conta empresa)
@@ -282,7 +447,10 @@ const FORMAS_TEF_FISCAL = new Set([
 
 function calcularSaldoNaoFiscal(venda, recebimentosNaoFiscal) {
   const valorNaoFiscal = Number(venda.valor_nao_fiscal || 0);
-  const recebimentos = Array.isArray(recebimentosNaoFiscal) ? recebimentosNaoFiscal : [];
+  const recebimentos = filtrarRecebimentosDaVendaCorrente(
+    venda,
+    Array.isArray(recebimentosNaoFiscal) ? recebimentosNaoFiscal : []
+  );
   const valorRecebido = recebimentos.reduce(
     (acc, r) => acc + Number(r.valor || 0),
     0
@@ -294,6 +462,52 @@ function calcularSaldoNaoFiscal(venda, recebimentosNaoFiscal) {
     valorRecebido,
     saldoPendente: Math.max(0, saldoPendente)
   };
+}
+
+/**
+ * Ignora recebimentos órfãos de vendas apagadas cujo venda_id foi reutilizado.
+ */
+function filtrarRecebimentosDaVendaCorrente(venda, recebimentos) {
+  const lista = Array.isArray(recebimentos) ? recebimentos : [];
+  if (!lista.length || !venda) return lista;
+
+  const dataVenda = String(venda.data_venda || '').slice(0, 10);
+  const inicioCodigo = extrairInicioTemporalDoCodigoVenda(venda.codigo);
+
+  return lista.filter((r) => {
+    const criado = String(r.created_at || '').trim();
+    if (!criado) return true;
+
+    if (inicioCodigo && criado < inicioCodigo) {
+      return false;
+    }
+
+    if (dataVenda) {
+      const diaCriado = criado.slice(0, 10);
+      if (diaCriado && diaCriado < dataVenda) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+function extrairInicioTemporalDoCodigoVenda(codigo) {
+  const m = String(codigo || '').match(/VND-(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
+  if (!m) return null;
+  // Margem de 3h para divergência de fuso no código vs created_at
+  const iso = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return null;
+  dt.setHours(dt.getHours() - 3);
+  const y = dt.getFullYear();
+  const mo = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  const h = String(dt.getHours()).padStart(2, '0');
+  const mi = String(dt.getMinutes()).padStart(2, '0');
+  const s = String(dt.getSeconds()).padStart(2, '0');
+  return `${y}-${mo}-${d} ${h}:${mi}:${s}`;
 }
 
 function filtrarRecebimentosNaoFiscal(recebimentos) {
@@ -524,6 +738,21 @@ const {
   valor_nao_fiscal
 } = req.body;
 
+const pularBaixaEstoque = isPoliticaEstoqueJaBaixado(req.body);
+const origemConsignacao = isOrigemConsignacao(req.body);
+const metaConsignacao = req.body.metadata || {};
+const saldoEmAbertoConsignacao = Number(
+  metaConsignacao.saldoEmAberto != null
+    ? metaConsignacao.saldoEmAberto
+    : Math.max(0, Number(total || 0) - Number(valor_recebido || 0))
+);
+const valorRecebidoConsignacao = Number(
+  metaConsignacao.valorRecebido != null
+    ? metaConsignacao.valorRecebido
+    : (valor_recebido != null ? valor_recebido : total)
+);
+const forcarEfetivo = forcar || origemConsignacao;
+
 const vendaFiscal = parseVendaFiscalFlag(emitir_fiscal);
 
 const cpfCnpjNotaLimpo = String(cpf_cnpj_nota || '').replace(/\D/g, '');
@@ -638,6 +867,11 @@ db.all(`
     const produto =
       produtoMap[item.produto_id];
 
+    if (pularBaixaEstoque) {
+      distribuicaoItens.push(distribuirItemSemBaixaEstoque(item, vendaFiscal));
+      continue;
+    }
+
     const resultado =
       distribuirItemVenda(
         item,
@@ -680,7 +914,7 @@ db.all(`
     return;
   }
   // Validar débitos e parcelas vencidas, a menos que forçar esteja ativo
-  if (!forcar) {
+  if (!forcarEfetivo) {
     const hoje = agoraLocalBrasil().slice(0, 10);
     db.get(`
       SELECT 
@@ -779,7 +1013,8 @@ db.all(`
               res.status(500).json({ error: err.message });
               return;
             }
-          }
+          },
+          { substituir: true }
         );
 
         const transacoesTefParaVincular = resultadoFiscal?.transacoes || [];
@@ -854,8 +1089,8 @@ db.all(`
               return;
             }
 
-            // Usar FEFO para reduzir estoque
-            reduzirEstoqueDistribuido(this.lastID, item.produto_id, item.quantidade_fiscal, item.quantidade_nao_fiscal, (estErr) => {
+            // Usar FEFO para reduzir estoque (STAB-06: skip se JA_BAIXADO_CONSIGNACAO)
+            reduzirEstoqueDistribuidoRespeitandoPolitica(pularBaixaEstoque, this.lastID, item.produto_id, item.quantidade_fiscal, item.quantidade_nao_fiscal, (estErr) => {
               if (estErr) {
                 db.run('ROLLBACK');
                 res.status(500).json({ error: estErr.message });
@@ -863,56 +1098,20 @@ db.all(`
               }
               itensProcessados++;
               if (itensProcessados === itens.length) {
-                if (pagamentosVenda.length > 0) {
-                  const stmtPagamentos = db.prepare(`
-                    INSERT INTO venda_pagamentos (
-                      venda_id, forma_pagamento, valor,
-                      tef_transacao_id, tef_nsu, tef_autorizacao,
-                      tef_bandeira, tef_adquirente,
-                      tef_comprovante_cliente, tef_comprovante_estabelecimento
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                  `);
-
-                  pagamentosVenda.forEach((p) => {
-                    stmtPagamentos.run(
-                      vendaId,
-                      p.forma_pagamento,
-                      Number(p.valor || 0),
-                      p.tef_transacao_id || p.tef?.transacao_id || null,
-                      p.nsu || p.tef?.nsu || null,
-                      p.autorizacao || p.tef?.autorizacao || null,
-                      p.bandeira || p.tef?.bandeira || null,
-                      p.adquirente || p.tef?.adquirente || null,
-                      p.tef?.comprovante_cliente || null,
-                      p.tef?.comprovante_estabelecimento || null
-                    );
-                  });
-
-                  stmtPagamentos.finalize();
-                } else {
-                  db.run(
-                    `
-                    INSERT INTO venda_pagamentos (
-                      venda_id, forma_pagamento, valor,
-                      tef_transacao_id, tef_nsu, tef_autorizacao,
-                      tef_bandeira, tef_adquirente,
-                      tef_comprovante_cliente, tef_comprovante_estabelecimento
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    `,
-                    [
-                      vendaId,
-                      formaPagamentoFinal,
-                      Number(total || 0),
-                      tef?.transacao_id || null,
-                      tef?.nsu || null,
-                      tef?.autorizacao || null,
-                      tef?.bandeira || null,
-                      tef?.adquirente || null,
-                      tef?.comprovante_cliente || null,
-                      tef?.comprovante_estabelecimento || null
-                    ]
-                  );
-                }
+                const listaPagPersist = resolverListaPagamentosPersistencia(recebimentos, pagamentosVenda);
+                console.log('[ORIGEM-PAG] venda_pagamentos (prazo)', {
+                  vendaId,
+                  recebimentos,
+                  pagamentosBody: pagamentosVenda,
+                  persistido: listaPagPersist
+                });
+                inserirLinhasVendaPagamentos(
+                  vendaId,
+                  listaPagPersist,
+                  formaPagamentoFinal,
+                  total,
+                  tef
+                );
 
                 // Gerar parcelas
                 const qtdParcelas = Number(parcelas) || 1;
@@ -1094,7 +1293,8 @@ const executarVenda = async () => {
             res.status(500).json({ error: err.message });
             return;
           }
-        }
+        },
+        { substituir: true }
       );
 
       const transacoesTefParaVincular = resultadoFiscal?.transacoes || [];
@@ -1169,8 +1369,8 @@ const executarVenda = async () => {
             return;
           }
 
-          // Usar FEFO para reduzir estoque
-          reduzirEstoqueDistribuido(this.lastID, item.produto_id, item.quantidade_fiscal, item.quantidade_nao_fiscal, (estErr) => {
+          // Usar FEFO para reduzir estoque (STAB-06: skip se JA_BAIXADO_CONSIGNACAO)
+          reduzirEstoqueDistribuidoRespeitandoPolitica(pularBaixaEstoque, this.lastID, item.produto_id, item.quantidade_fiscal, item.quantidade_nao_fiscal, (estErr) => {
             if (estErr) {
               db.run('ROLLBACK');
               res.status(500).json({ error: estErr.message });
@@ -1178,56 +1378,22 @@ const executarVenda = async () => {
             }
             itensProcessados++;
             if (itensProcessados === itens.length) {
-              if (pagamentosVenda.length > 0) {
-                const stmtPagamentos = db.prepare(`
-                  INSERT INTO venda_pagamentos (
-                    venda_id, forma_pagamento, valor,
-                    tef_transacao_id, tef_nsu, tef_autorizacao,
-                    tef_bandeira, tef_adquirente,
-                    tef_comprovante_cliente, tef_comprovante_estabelecimento
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `);
-
-                pagamentosVenda.forEach((p) => {
-                  stmtPagamentos.run(
-                    vendaId,
-                    p.forma_pagamento,
-                    Number(p.valor || 0),
-                    p.tef_transacao_id || p.tef?.transacao_id || null,
-                    p.nsu || p.tef?.nsu || null,
-                    p.autorizacao || p.tef?.autorizacao || null,
-                    p.bandeira || p.tef?.bandeira || null,
-                    p.adquirente || p.tef?.adquirente || null,
-                    p.tef?.comprovante_cliente || null,
-                    p.tef?.comprovante_estabelecimento || null
-                  );
-                });
-
-                stmtPagamentos.finalize();
-              } else {
-                db.run(
-                  `
-                  INSERT INTO venda_pagamentos (
-                    venda_id, forma_pagamento, valor,
-                    tef_transacao_id, tef_nsu, tef_autorizacao,
-                    tef_bandeira, tef_adquirente,
-                    tef_comprovante_cliente, tef_comprovante_estabelecimento
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                  `,
-                  [
-                    vendaId,
-                    formaPagamentoFinal,
-                    Number(total || 0),
-                    tef?.transacao_id || null,
-                    tef?.nsu || null,
-                    tef?.autorizacao || null,
-                    tef?.bandeira || null,
-                    tef?.adquirente || null,
-                    tef?.comprovante_cliente || null,
-                    tef?.comprovante_estabelecimento || null
-                  ]
-                );
-              }
+              const listaPagPersist = resolverListaPagamentosPersistencia(recebimentos, pagamentosVenda);
+              console.log('[ORIGEM-PAG] venda_pagamentos (vista)', {
+                vendaId,
+                totalFiscal,
+                totalNaoFiscal,
+                recebimentos,
+                pagamentosBody: pagamentosVenda,
+                persistido: listaPagPersist
+              });
+              inserirLinhasVendaPagamentos(
+                vendaId,
+                listaPagPersist,
+                formaPagamentoFinal,
+                total,
+                tef
+              );
 
               const statusFinanceiro = vendaFicaPendente ? 'pendente' : 'recebido';
               const baixadoEm = statusFinanceiro === 'recebido' ? data_venda : null;
@@ -1237,24 +1403,43 @@ const executarVenda = async () => {
                 responderVendaComFiscal(res, {
                   vendaId,
                   codigo,
-                  message: 'Venda registrada com sucesso',
+                  message: origemConsignacao
+                    ? 'Venda oficial (consignação) registrada com sucesso'
+                    : 'Venda registrada com sucesso',
                   emitirFiscal: !!emitir_fiscal,
                   valorFiscal: totalFiscal,
                   valorNaoFiscal: totalNaoFiscal,
                   statusPagamento: statusPagamento,
-                  pagamentosTef: pagamentosVenda
+                  pagamentosTef: pagamentosVenda,
+                  integridadeComercial: origemConsignacao
+                    ? {
+                      valorVenda: totalNum,
+                      valorRecebido: valorRecebidoConsignacao,
+                      saldoEmAberto: saldoEmAbertoConsignacao
+                    }
+                    : null
                 });
               };
 
               const inserirContasReceberSeNecessario = (callback) => {
-                if (forma_pagamento === 'prazo' && cliente_id) {
-                  const valorParcela = totalNum;
+                const saldoAR = origemConsignacao
+                  ? saldoEmAbertoConsignacao
+                  : (forma_pagamento === 'prazo' ? totalNum : 0);
+
+                if (saldoAR > 0.01 && cliente_id) {
                   db.run(`
                     INSERT INTO contas_receber (
                       venda_id, cliente_id, numero_parcela, total_parcelas, valor_parcela,
                       valor_restante, data_vencimento, status
                     ) VALUES (?, ?, ?, ?, ?, ?, date('now', '+30 day'), 'aberto')
-                  `, [vendaId, cliente_id, 1, 1, valorParcela, valorParcela], (crErr) => {
+                  `, [
+                    vendaId,
+                    cliente_id,
+                    1,
+                    1,
+                    saldoAR,
+                    saldoAR
+                  ], (crErr) => {
                     if (crErr) {
                       db.run('ROLLBACK');
                       res.status(500).json({ error: crErr.message });
@@ -1274,53 +1459,121 @@ const executarVenda = async () => {
                   return;
                 }
 
-                db.run(`
-                  INSERT INTO financeiro (
-                    tipo, descricao, valor, data_movimento, categoria, forma_pagamento,
-                    referencia_id, referencia_tipo, status, origem, documento, vencimento,
-                    numero_parcela, total_parcelas, venda_id, pessoa_nome, baixado_em
-                  ) VALUES ('receita', ?, ?, ?, 'vendas', ?, ?, 'venda', ?, 'venda', ?, ?, 1, 1, ?, ?, ?)
-                `, [
-                  `Venda ${codigo}`,
-                  totalNum,
-                  data_venda,
-                  forma_pagamento,
-                  vendaId,
-                  statusFinanceiro,
-                  clienteCpf,
-                  data_venda,
-                  vendaId,
-                  clienteNome,
-                  baixadoEm
-                ], (finErr) => {
-                  if (finErr) {
-                    db.run('ROLLBACK');
-                    res.status(500).json({ error: finErr.message });
-                    return;
-                  }
-
-                  const aposFinanceiro = () => {
-                    if (forma_pagamento === 'prazo' && cliente_id) {
-                      db.run(`
-                        UPDATE clientes
-                        SET credito_atual = COALESCE(credito_atual, 0) + ?
-                        WHERE id = ?
-                      `, [totalNum, cliente_id], (credErr) => {
-                        if (credErr) {
-                          db.run('ROLLBACK');
-                          res.status(500).json({ error: credErr.message });
-                          return;
-                        }
-
-                        finalizarResposta();
-                      });
-                    } else {
-                      finalizarResposta();
+                const gravarFinanceiroPadrao = (callback) => {
+                  db.run(`
+                    INSERT INTO financeiro (
+                      tipo, descricao, valor, data_movimento, categoria, forma_pagamento,
+                      referencia_id, referencia_tipo, status, origem, documento, vencimento,
+                      numero_parcela, total_parcelas, venda_id, pessoa_nome, baixado_em
+                    ) VALUES ('receita', ?, ?, ?, 'vendas', ?, ?, 'venda', ?, 'venda', ?, ?, 1, 1, ?, ?, ?)
+                  `, [
+                    `Venda ${codigo}`,
+                    totalNum,
+                    data_venda,
+                    forma_pagamento,
+                    vendaId,
+                    statusFinanceiro,
+                    clienteCpf,
+                    data_venda,
+                    vendaId,
+                    clienteNome,
+                    baixadoEm
+                  ], (finErr) => {
+                    if (finErr) {
+                      db.run('ROLLBACK');
+                      res.status(500).json({ error: finErr.message });
+                      return;
                     }
+                    callback();
+                  });
+                };
+
+                // STAB-06: Integridade Comercial — receita do recebido + AR do saldo
+                const gravarFinanceiroConsignacao = (callback) => {
+                  const inserirRecebido = (next) => {
+                    if (valorRecebidoConsignacao <= 0.01) return next();
+                    db.run(`
+                      INSERT INTO financeiro (
+                        tipo, descricao, valor, data_movimento, categoria, forma_pagamento,
+                        referencia_id, referencia_tipo, status, origem, documento, vencimento,
+                        numero_parcela, total_parcelas, venda_id, pessoa_nome, baixado_em, observacao
+                      ) VALUES ('receita', ?, ?, ?, 'vendas', ?, ?, 'venda', 'recebido', 'venda', ?, ?, 1, 1, ?, ?, ?, ?)
+                    `, [
+                      `Venda ${codigo} (recebido consignação)`,
+                      valorRecebidoConsignacao,
+                      data_venda,
+                      forma_pagamento,
+                      vendaId,
+                      clienteCpf,
+                      data_venda,
+                      vendaId,
+                      clienteNome,
+                      data_venda,
+                      `STAB-06 consignacao#${metaConsignacao.consignacaoId || ''}`
+                    ], (err) => {
+                      if (err) {
+                        db.run('ROLLBACK');
+                        res.status(500).json({ error: err.message });
+                        return;
+                      }
+                      next();
+                    });
                   };
 
-                  inserirContasReceberSeNecessario(aposFinanceiro);
-                });
+                  const inserirPendente = (next) => {
+                    if (saldoEmAbertoConsignacao <= 0.01) return next();
+                    db.run(`
+                      INSERT INTO financeiro (
+                        tipo, descricao, valor, data_movimento, categoria, forma_pagamento,
+                        referencia_id, referencia_tipo, status, origem, documento, vencimento,
+                        numero_parcela, total_parcelas, venda_id, pessoa_nome, baixado_em, observacao
+                      ) VALUES ('receita', ?, ?, ?, 'vendas', 'prazo', ?, 'venda', 'pendente', 'venda', ?, ?, 1, 1, ?, ?, NULL, ?)
+                    `, [
+                      `Venda ${codigo} (saldo consignação)`,
+                      saldoEmAbertoConsignacao,
+                      data_venda,
+                      vendaId,
+                      clienteCpf,
+                      data_venda,
+                      vendaId,
+                      clienteNome,
+                      `STAB-06 consignacao#${metaConsignacao.consignacaoId || ''} saldo`
+                    ], (err) => {
+                      if (err) {
+                        db.run('ROLLBACK');
+                        res.status(500).json({ error: err.message });
+                        return;
+                      }
+                      next();
+                    });
+                  };
+
+                  inserirRecebido(() => inserirPendente(callback));
+                };
+
+                const aposFinanceiro = () => {
+                  if ((forma_pagamento === 'prazo' || (origemConsignacao && saldoEmAbertoConsignacao > 0.01)) && cliente_id) {
+                    const creditoAdd = origemConsignacao ? saldoEmAbertoConsignacao : totalNum;
+                    db.run(`
+                      UPDATE clientes
+                      SET credito_atual = COALESCE(credito_atual, 0) + ?
+                      WHERE id = ?
+                    `, [creditoAdd, cliente_id], (credErr) => {
+                      if (credErr) {
+                        db.run('ROLLBACK');
+                        res.status(500).json({ error: credErr.message });
+                        return;
+                      }
+
+                      finalizarResposta();
+                    });
+                  } else {
+                    finalizarResposta();
+                  }
+                };
+
+                const gravar = origemConsignacao ? gravarFinanceiroConsignacao : gravarFinanceiroPadrao;
+                gravar(() => inserirContasReceberSeNecessario(aposFinanceiro));
               });
             }
           });
@@ -1655,6 +1908,7 @@ module.exports = {
   processarPagamentosTef,
   calcularSaldoNaoFiscal,
   filtrarRecebimentosNaoFiscal,
+  filtrarRecebimentosDaVendaCorrente,
   resolverStatusPagamentoVenda,
   aplicarRegraStatusPagamentoVenda,
   normalizarPagamentosNaoFiscal,

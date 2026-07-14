@@ -25,6 +25,15 @@ const PERMISSOES_PAGINAS = {
     'laboratorio-equipamentos': 'configuracoes',
     licenca: 'configuracoes',
     dashboard: 'relatorios',
+    'comercial-dashboard': 'COMERCIAL_DASHBOARD',
+    'comercial-clientes': 'COMERCIAL_VISUALIZAR',
+    'comercial-consignacao-nova': 'COMERCIAL_CONSIGNACAO',
+    'comercial-consignacao-lista': 'COMERCIAL_CONSIGNACAO',
+    'comercial-acertos': 'COMERCIAL_ACERTO',
+    'comercial-conta-corrente': 'COMERCIAL_VISUALIZAR',
+    'comercial-perdas': 'COMERCIAL_PERDAS',
+    'comercial-cortesias': 'COMERCIAL_CORTESIAS',
+    'comercial-relatorios': 'COMERCIAL_VISUALIZAR',
     usuarios: 'usuarios',
     relatorios: 'relatorios',
     auditoria: 'auditoria',
@@ -36,7 +45,9 @@ const PERMISSOES_PAGINAS = {
 const PERMISSOES_RETAGUARDA = new Set([
     'produtos', 'clientes', 'compras', 'fornecedores', 'vendas',
     'financeiro', 'categorias', 'fiscal', 'configuracoes', 'equipamentos', 'usuarios',
-    'relatorios', 'auditoria', 'caixa', 'caixas'
+    'relatorios', 'auditoria', 'caixa', 'caixas',
+    'COMERCIAL_VISUALIZAR', 'COMERCIAL_CONSIGNACAO', 'COMERCIAL_ACERTO',
+    'COMERCIAL_LIMITE', 'COMERCIAL_PERDAS', 'COMERCIAL_CORTESIAS', 'COMERCIAL_DASHBOARD'
 ]);
 
 /** @deprecated Use PERMISSOES_RETAGUARDA — mantido para compatibilidade. */

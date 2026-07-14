@@ -2,6 +2,9 @@
 
 Sistema completo de gestão para supermercados e mercados.
 
+## Manifesto da Plataforma CDS
+O posicionamento institucional e filosófico da plataforma está formalizado em [CDS_PLATFORM_MANIFESTO.md](CDS_PLATFORM_MANIFESTO.md).
+
 ## Funcionalidades
 
 ### 📦 Produtos

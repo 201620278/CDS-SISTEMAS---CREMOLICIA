@@ -1,0 +1,66 @@
+/**
+ * CDS Design System — Entry Point (CSS)
+ * Sprint UX/UI 2.0.1 — Fundação Visual Cremolícia
+ *
+ * Carregar via:
+ *   <link rel="stylesheet" href="/shared/design-system/index.css">
+ * ou injectFoundationStyles() em styles/inject.js
+ *
+ * Troca de tema (sem reload):
+ *   document.documentElement.setAttribute('data-theme', 'dark')
+ *   // classic | dark | high-contrast
+ */
+
+/* ——— Tokens ——— */
+@import url('./tokens/colors.css');
+@import url('./tokens/spacing.css');
+@import url('./tokens/typography.css');
+@import url('./tokens/radius.css');
+@import url('./tokens/shadows.css');
+@import url('./tokens/transitions.css');
+@import url('./tokens/z-index.css');
+
+/* ——— Themes ——— */
+@import url('./themes/classic.css');
+@import url('./themes/dark.css');
+@import url('./themes/high-contrast.css');
+
+/* ——— Components ——— */
+@import url('./components/buttons.css');
+@import url('./components/cards.css');
+@import url('./components/inputs.css');
+@import url('./components/tables.css');
+@import url('./components/alerts.css');
+@import url('./components/badges.css');
+@import url('./components/dropdown.css');
+@import url('./components/tooltip.css');
+@import url('./components/loading.css');
+@import url('./components/skeleton.css');
+@import url('./components/modals.css');
+@import url('./components/typography.css');
+@import url('./components/stat-cards.css');
+@import url('./components/drawers.css');
+
+/* ——— Animations ——— */
+@import url('./animations/fade.css');
+@import url('./animations/slide.css');
+@import url('./animations/scale.css');
+@import url('./animations/pulse.css');
+@import url('./animations/shimmer.css');
+
+/* ——— Charts (Sprint UX/UI 2.1) ——— */
+@import url('./charts/charts.css');
+
+/* ——— Base tipográfica da fundação ——— */
+.cds-ds-root,
+[data-cds-ds] {
+  font-family: var(--font-family-primary);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  transition: var(--transition-theme);
+}
+
+.cds-ds-root *,
+[data-cds-ds] * {
+  box-sizing: border-box;
+}

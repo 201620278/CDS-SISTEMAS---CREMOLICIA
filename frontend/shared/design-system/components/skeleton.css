@@ -1,0 +1,74 @@
+/**
+ * CDS Design System — Skeleton
+ * Sprint UX/UI 2.0.1
+ */
+
+.cds-skeleton {
+  display: block;
+  background-color: var(--color-skeleton-base);
+  border-radius: var(--radius-md);
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0);
+}
+
+.cds-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-skeleton-highlight) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: cds-shimmer 1.4s var(--easing-in-out) infinite;
+  will-change: transform;
+}
+
+.cds-skeleton--text {
+  height: 0.875em;
+  width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.cds-skeleton--title {
+  height: 1.25em;
+  width: 60%;
+}
+
+.cds-skeleton--avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+}
+
+.cds-skeleton--thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
+}
+
+.cds-skeleton--card {
+  height: 120px;
+  width: 100%;
+}
+
+.cds-skeleton--button {
+  height: 40px;
+  width: 120px;
+  border-radius: var(--radius-md);
+}
+
+.cds-skeleton-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cds-skeleton::after {
+    animation: none;
+  }
+}

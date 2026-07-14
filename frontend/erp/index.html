@@ -1,9 +1,35 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="classic" class="theme-classic">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CDS ERP — Retaguarda</title>
+    <script>
+        /* STAB-01.1 — Classic no primeiro paint; Dark só com preferência explícita do ERP. */
+        (function bootErpTheme() {
+            var STORAGE_KEY = 'cds-ui-theme';
+            var MIGRATION_KEY = 'cds-ui-theme-migrated-stab-01-1';
+            var THEMES = ['classic', 'dark', 'high-contrast'];
+            var root = document.documentElement;
+            try {
+                if (localStorage.getItem(MIGRATION_KEY) !== '1') {
+                    if (localStorage.getItem(STORAGE_KEY) === 'dark') {
+                        localStorage.removeItem(STORAGE_KEY);
+                    }
+                    localStorage.setItem(MIGRATION_KEY, '1');
+                }
+            } catch (e) {}
+            var next = 'classic';
+            try {
+                var stored = localStorage.getItem(STORAGE_KEY);
+                if (THEMES.indexOf(stored) >= 0) next = stored;
+            } catch (e) {}
+            root.setAttribute('data-theme', next);
+            THEMES.forEach(function (name) {
+                root.classList.toggle('theme-' + name, name === next);
+            });
+        })();
+    </script>
     <link href="/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="/css/style.css">
@@ -11,118 +37,264 @@
     <link rel="stylesheet" href="/css/miip-compras.css">
     <link rel="stylesheet" href="/css/miip-central-revisao.css">
     <link rel="stylesheet" href="/css/central-entradas.css">
+    <link rel="stylesheet" href="/css/comercial.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/Dashboard/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/Consignacoes/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/NovaConsignacao/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/EntregaConsignacao/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/PrestacaoContas/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/PerfilComercial/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/ContaCorrente/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/Relatorios/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/Playbooks/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/WorkflowCenter/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/Pendencias/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/Recomendacoes/styles.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/styles/ux-enterprise.css">
+    <link rel="stylesheet" href="/modules/motor-comercial/pages/DesignSystem/styles.css">
+    <link rel="stylesheet" href="/shared/design-system/index.css">
+    <link rel="stylesheet" href="/shared/design-system/charts/charts.css">
 </head>
 <body>
     <div class="container-fluid">
         <div class="row">
             <nav id="sidebar" class="col-md-2 col-lg-2 d-md-block bg-dark sidebar">
                 <div class="position-sticky pt-3">
-                    <div class="text-center mb-2" id="sidebar-brand">
+                    <div class="text-center mb-1" id="sidebar-brand">
                         <div id="sidebar-brand-content">
-                            <h5 class="text-white">CDS</h5>
+                            <h5 class="text-white mb-0">CDS</h5>
                             <small class="text-muted">ERP</small>
                         </div>
                         <div id="sidebar-modo-fiscal-bar" class="sidebar-modo-fiscal-bar sidebar-modo-fiscal-bar--off" title="Modo completo (F12 para ativar fiscal)"></div>
                     </div>
-                    <ul class="nav flex-column">
+                    <ul class="nav flex-column sidebar-nav" id="sidebar-nav">
+                        <li class="sidebar-nav-separator" role="presentation"></li>
+                        <li class="sidebar-nav-group" aria-hidden="true">
+                            <span class="sidebar-nav-group__label">Geral</span>
+                        </li>
                         <li class="nav-item">
-                            <a class="nav-link text-white active" href="#" data-page="dashboard">
-                                <i class="fas fa-chart-line"></i> Dashboard
+                            <a class="nav-link text-white active" href="#" data-page="dashboard" title="Dashboard">
+                                <i class="fas fa-chart-line" aria-hidden="true"></i><span class="sidebar-nav-label">Dashboard</span>
+                            </a>
+                        </li>
+
+                        <li class="sidebar-nav-separator" role="presentation"></li>
+                        <li class="sidebar-nav-group" aria-hidden="true">
+                            <span class="sidebar-nav-group__label">Cadastros</span>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="clientes" title="Clientes">
+                                <i class="fas fa-users" aria-hidden="true"></i><span class="sidebar-nav-label">Clientes</span>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="produtos">
-                                <i class="fas fa-box"></i> Produtos
+                            <a class="nav-link text-white" href="#" data-page="fornecedores" title="Fornecedores">
+                                <i class="fas fa-truck" aria-hidden="true"></i><span class="sidebar-nav-label">Fornecedores</span>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="categorias">
-                                <i class="fas fa-tags"></i> Categorias
+                            <a class="nav-link text-white" href="#" data-page="produtos" title="Produtos">
+                                <i class="fas fa-box" aria-hidden="true"></i><span class="sidebar-nav-label">Produtos</span>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="produtos">
-                                <i class="fas fa-warehouse"></i> Estoque
+                            <a class="nav-link text-white" href="#" data-page="categorias" title="Categorias">
+                                <i class="fas fa-tags" aria-hidden="true"></i><span class="sidebar-nav-label">Categorias</span>
+                            </a>
+                        </li>
+
+                        <li class="sidebar-nav-separator" role="presentation"></li>
+                        <li class="sidebar-nav-group" aria-hidden="true">
+                            <span class="sidebar-nav-group__label">Operações</span>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white sidebar-comercial-toggle" href="#" data-bs-toggle="collapse" data-bs-target="#submenu-comercial" aria-expanded="false" aria-controls="submenu-comercial" title="Comercial">
+                                <i class="fas fa-store" aria-hidden="true"></i><span class="sidebar-nav-label">Comercial</span>
+                                <i class="fas fa-chevron-down sidebar-nav-chevron" aria-hidden="true"></i>
+                            </a>
+                            <div class="collapse sidebar-comercial-submenu" id="submenu-comercial">
+                                <ul class="nav flex-column sidebar-comercial-nav">
+                                    <li class="sidebar-comercial-separator" role="presentation"></li>
+                                    <li class="sidebar-comercial-group" aria-hidden="true">
+                                        <span class="sidebar-comercial-group__label">Painel</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-dashboard" title="Painel">
+                                            <i class="fas fa-chart-pie" aria-hidden="true"></i><span class="sidebar-nav-label">Painel</span>
+                                        </a>
+                                    </li>
+
+                                    <li class="sidebar-comercial-separator" role="presentation"></li>
+                                    <li class="sidebar-comercial-group" aria-hidden="true">
+                                        <span class="sidebar-comercial-group__label">Cadastros</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-clientes" title="Clientes">
+                                            <i class="fas fa-user-tag" aria-hidden="true"></i><span class="sidebar-nav-label">Clientes</span>
+                                        </a>
+                                    </li>
+
+                                    <li class="sidebar-comercial-separator" role="presentation"></li>
+                                    <li class="sidebar-comercial-group" aria-hidden="true">
+                                        <span class="sidebar-comercial-group__label">Operações</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-consignacao-nova" title="Preparar Entrega">
+                                            <i class="fas fa-plus-circle" aria-hidden="true"></i><span class="sidebar-nav-label">Preparar Entrega</span>
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-consignacao-lista" title="Consignações">
+                                            <i class="fas fa-clipboard-list" aria-hidden="true"></i><span class="sidebar-nav-label">Consignações</span>
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-acertos" title="Prestação de Contas">
+                                            <i class="fas fa-clipboard-check" aria-hidden="true"></i><span class="sidebar-nav-label">Prestação de Contas</span>
+                                        </a>
+                                    </li>
+
+                                    <li class="sidebar-comercial-separator" role="presentation"></li>
+                                    <li class="sidebar-comercial-group" aria-hidden="true">
+                                        <span class="sidebar-comercial-group__label">Financeiro</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-conta-corrente" title="Conta Corrente">
+                                            <i class="fas fa-file-invoice-dollar" aria-hidden="true"></i><span class="sidebar-nav-label">Conta Corrente</span>
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-pendencias" title="Pendências">
+                                            <i class="fas fa-bell" aria-hidden="true"></i><span class="sidebar-nav-label">Pendências</span>
+                                            <span id="comercial-pendencias-badge" class="badge bg-danger ms-1 d-none">0</span>
+                                        </a>
+                                    </li>
+
+                                    <li class="sidebar-comercial-separator" role="presentation"></li>
+                                    <li class="sidebar-comercial-group" aria-hidden="true">
+                                        <span class="sidebar-comercial-group__label">Ocorrências</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-perdas" title="Perdas">
+                                            <i class="fas fa-exclamation-triangle" aria-hidden="true"></i><span class="sidebar-nav-label">Perdas</span>
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-cortesias" title="Cortesias">
+                                            <i class="fas fa-gift" aria-hidden="true"></i><span class="sidebar-nav-label">Cortesias</span>
+                                        </a>
+                                    </li>
+
+                                    <li class="sidebar-comercial-separator" role="presentation"></li>
+                                    <li class="sidebar-comercial-group" aria-hidden="true">
+                                        <span class="sidebar-comercial-group__label">Inteligência</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-recomendacoes" title="Recomendações">
+                                            <i class="fas fa-lightbulb" aria-hidden="true"></i><span class="sidebar-nav-label">Recomendações</span>
+                                        </a>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-playbooks" title="Guias Operacionais">
+                                            <i class="fas fa-book-open" aria-hidden="true"></i><span class="sidebar-nav-label">Guias Operacionais</span>
+                                        </a>
+                                    </li>
+
+                                    <li class="sidebar-comercial-separator" role="presentation"></li>
+                                    <li class="sidebar-comercial-group" aria-hidden="true">
+                                        <span class="sidebar-comercial-group__label">Relatórios</span>
+                                    </li>
+                                    <li class="nav-item">
+                                        <a class="nav-link text-white-50" href="#" data-page="comercial-relatorios" title="Relatórios">
+                                            <i class="fas fa-chart-bar" aria-hidden="true"></i><span class="sidebar-nav-label">Relatórios</span>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="compras" title="Compras">
+                                <i class="fas fa-shopping-cart" aria-hidden="true"></i><span class="sidebar-nav-label">Compras</span>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="compras">
-                                <i class="fas fa-shopping-cart"></i> Compras
+                            <a class="nav-link text-white" href="#" data-page="produtos" title="Estoque">
+                                <i class="fas fa-warehouse" aria-hidden="true"></i><span class="sidebar-nav-label">Estoque</span>
                             </a>
                         </li>
                         <li class="nav-item" data-recurso="fiscal">
-                            <a class="nav-link text-white" href="#" data-page="central-entradas">
-                                <i class="fas fa-inbox"></i> Central Inteligente de Entradas
+                            <a class="nav-link text-white" href="#" data-page="central-entradas" title="Central de Entradas NF">
+                                <i class="fas fa-inbox" aria-hidden="true"></i><span class="sidebar-nav-label">Central de Entradas NF</span>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="clientes">
-                                <i class="fas fa-users"></i> Clientes
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="fornecedores">
-                                <i class="fas fa-truck"></i> Fornecedores
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="financeiro">
-                                <i class="fas fa-coins"></i> Financeiro
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="vendas">
-                                <i class="fas fa-history"></i> Relatórios / Vendas
-                            </a>
-                        </li>
-                        <li class="nav-item" data-recurso="fiscal">
-                            <a class="nav-link text-white" href="#" data-page="fiscal">
-                                <i class="fas fa-receipt"></i> Fiscal
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="configuracoes">
-                                <i class="fas fa-cog"></i> Configurações
-                            </a>
-                        </li>
-                        <li class="nav-item" id="nav-usuarios">
-                            <a class="nav-link text-white" href="#" data-page="usuarios">
-                                <i class="fas fa-user-shield"></i> Usuários
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="laboratorio-equipamentos">
-                                <i class="fas fa-flask"></i> Lab. Equipamentos
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="licenca">
-                                <i class="fas fa-key"></i> Licença
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="auditoria">
-                                <i class="fas fa-shield-alt"></i> Auditoria
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-white" href="#" data-page="caixa">
-                                <i class="fas fa-cash-register"></i> Fechamento de Caixa
-                            </a>
-                        </li>
-                        <li class="nav-item" id="nav-config-avancadas" data-recurso="configAvancadas">
-                            <a class="nav-link text-white" href="#" data-page="configuracoes-avancadas">
-                                <i class="fas fa-tools"></i> Config. Avançadas
+                            <a class="nav-link text-white" href="#" data-page="caixa" title="Fechamento de Caixa">
+                                <i class="fas fa-cash-register" aria-hidden="true"></i><span class="sidebar-nav-label">Fechamento de Caixa</span>
                             </a>
                         </li>
                         <li class="nav-item" data-recurso="multiCaixa">
-                            <a class="nav-link text-white" href="#" data-page="caixas">
-                                <i class="fas fa-desktop"></i> Gerenciar Caixas
+                            <a class="nav-link text-white" href="#" data-page="caixas" title="Gerenciar Caixas">
+                                <i class="fas fa-desktop" aria-hidden="true"></i><span class="sidebar-nav-label">Gerenciar Caixas</span>
                             </a>
                         </li>
                         <li class="nav-item" id="nav-abrir-pdv">
-                            <a class="nav-link text-success" href="/pdv">
-                                <i class="fas fa-cash-register"></i> Abrir PDV
+                            <a class="nav-link text-success" href="/pdv" title="Abrir PDV">
+                                <i class="fas fa-store-alt" aria-hidden="true"></i><span class="sidebar-nav-label">Abrir PDV</span>
+                            </a>
+                        </li>
+
+                        <li class="sidebar-nav-separator" role="presentation"></li>
+                        <li class="sidebar-nav-group" aria-hidden="true">
+                            <span class="sidebar-nav-group__label">Gestão</span>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="financeiro" title="Financeiro">
+                                <i class="fas fa-coins" aria-hidden="true"></i><span class="sidebar-nav-label">Financeiro</span>
+                            </a>
+                        </li>
+                        <li class="nav-item" data-recurso="fiscal">
+                            <a class="nav-link text-white" href="#" data-page="fiscal" title="Fiscal">
+                                <i class="fas fa-receipt" aria-hidden="true"></i><span class="sidebar-nav-label">Fiscal</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="vendas" title="Relatórios / Vendas">
+                                <i class="fas fa-chart-bar" aria-hidden="true"></i><span class="sidebar-nav-label">Relatórios / Vendas</span>
+                            </a>
+                        </li>
+
+                        <li class="sidebar-nav-separator" role="presentation"></li>
+                        <li class="sidebar-nav-group" aria-hidden="true">
+                            <span class="sidebar-nav-group__label">Administração</span>
+                        </li>
+                        <li class="nav-item" id="nav-usuarios">
+                            <a class="nav-link text-white" href="#" data-page="usuarios" title="Usuários">
+                                <i class="fas fa-user-shield" aria-hidden="true"></i><span class="sidebar-nav-label">Usuários</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="laboratorio-equipamentos" title="Equipamentos">
+                                <i class="fas fa-plug" aria-hidden="true"></i><span class="sidebar-nav-label">Equipamentos</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="configuracoes" title="Configurações">
+                                <i class="fas fa-cog" aria-hidden="true"></i><span class="sidebar-nav-label">Configurações</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="licenca" title="Licença">
+                                <i class="fas fa-key" aria-hidden="true"></i><span class="sidebar-nav-label">Licença</span>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" data-page="auditoria" title="Auditoria">
+                                <i class="fas fa-shield-alt" aria-hidden="true"></i><span class="sidebar-nav-label">Auditoria</span>
+                            </a>
+                        </li>
+                        <li class="nav-item" id="nav-config-avancadas" data-recurso="configAvancadas">
+                            <a class="nav-link text-white" href="#" data-page="configuracoes-avancadas" title="Config. Avançadas">
+                                <i class="fas fa-tools" aria-hidden="true"></i><span class="sidebar-nav-label">Config. Avançadas</span>
                             </a>
                         </li>
                     </ul>
@@ -156,6 +328,7 @@
     <script src="/vendor/jquery/jquery.min.js"></script>
     <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
     <script src="/vendor/chart.js/chart.min.js"></script>
+    <script src="/shared/design-system/charts/cdsChartTheme.js"></script>
     <script>
         window.CDS_MODULE = 'erp';
         window.CDS_DEFAULT_PAGE = 'dashboard';
@@ -195,6 +368,8 @@
     <script src="/erp/js/caixa.js"></script>
     <script src="/erp/js/licenca.js"></script>
     <script src="/erp/js/auditoria.js"></script>
+    <script src="/modules/motor-comercial/motor-comercial.bundle.js"></script>
+    <script src="/erp/js/comercial.js"></script>
     <script src="/erp/js/caixas.js"></script>
     <script src="/erp/js/app.js"></script>
 

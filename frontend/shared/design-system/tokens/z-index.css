@@ -1,0 +1,19 @@
+/**
+ * CDS Design System — Tokens de Z-Index
+ * Sprint UX/UI 2.0.1 — Fundação Visual Cremolícia
+ */
+
+:root {
+  --z-base: 0;
+  --z-raised: 1;
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-popover: 1060;
+  --z-tooltip: 1070;
+  --z-toast: 1080;
+  --z-notification: 1080;
+  --z-splash: 9999;
+}

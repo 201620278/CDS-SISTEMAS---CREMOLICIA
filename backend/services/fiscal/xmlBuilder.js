@@ -147,6 +147,44 @@ function resolverTefPagamento(pagamento, dadosVenda = {}) {
   return dadosVenda.tef || null;
 }
 
+function limitarPagamentosAoTotalFiscal(pagamentos, totalFiscal) {
+  const alvo = Number(Number(totalFiscal || 0).toFixed(2));
+  if (alvo <= 0) {
+    return [];
+  }
+
+  let restante = alvo;
+  const out = [];
+
+  for (const p of pagamentos || []) {
+    if (restante <= 0) break;
+    const bruto = Number(p.valor || 0);
+    if (bruto <= 0) continue;
+    const usado = Math.min(bruto, restante);
+    const valor = Number(usado.toFixed(2));
+    if (valor > 0) {
+      out.push({ ...p, valor });
+      restante = Number((restante - valor).toFixed(2));
+    }
+  }
+
+  if (out.length === 0) {
+    return [{ forma_pagamento: 'dinheiro', valor: alvo }];
+  }
+
+  const soma = out.reduce((s, p) => s + Number(p.valor || 0), 0);
+  const diff = Number((alvo - soma).toFixed(2));
+  if (Math.abs(diff) >= 0.01) {
+    const ultimo = out[out.length - 1];
+    out[out.length - 1] = {
+      ...ultimo,
+      valor: Number((Number(ultimo.valor || 0) + diff).toFixed(2))
+    };
+  }
+
+  return out;
+}
+
 function resolverPagamentosNfce(venda, totalFiscal) {
   const pagamentosBrutos = Array.isArray(venda?.pagamentos) ? venda.pagamentos : [];
   let pagamentosFiscais = pagamentosBrutos.filter((p) => (
@@ -167,19 +205,31 @@ function resolverPagamentosNfce(venda, totalFiscal) {
     }];
   }
 
-  const somaPagamentos = pagamentosFiscais.reduce(
+  const somaAntes = pagamentosFiscais.reduce(
     (total, pagamento) => total + Number(pagamento.valor || 0),
     0
   );
 
-  if (Math.abs(somaPagamentos - totalFiscal) > 0.01 && pagamentosFiscais.length === 1) {
-    pagamentosFiscais = [{
-      ...pagamentosFiscais[0],
-      valor: totalFiscal
-    }];
-  }
+  // SEFAZ 866: soma(detPag) > vNF e sem vTroco — limita sempre ao total fiscal
+  const ajustados = limitarPagamentosAoTotalFiscal(pagamentosFiscais, totalFiscal);
+  const somaDepois = ajustados.reduce(
+    (total, pagamento) => total + Number(pagamento.valor || 0),
+    0
+  );
 
-  return pagamentosFiscais;
+  console.log('[AUDITORIA-PAG-NFCE] imediatamente antes do XML', {
+    valorNota: Number(totalFiscal || 0),
+    pagamentosBrutos,
+    pagamentosFiscaisAntes: pagamentosFiscais,
+    totalPagamentosAntes: Number(somaAntes.toFixed(2)),
+    pagamentosFiscais: ajustados,
+    totalPagamentos: Number(somaDepois.toFixed(2)),
+    valorTroco: 0,
+    formaPagamento: venda?.forma_pagamento || null,
+    ajustouLimitacao: Math.abs(somaAntes - somaDepois) > 0.01
+  });
+
+  return ajustados;
 }
 
 function montarPagamentos(pagamentos, dadosVenda = {}) {

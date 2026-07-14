@@ -613,6 +613,164 @@ router.get('/consulta-pdv/buscar', (req, res) => {
   });
 });
 
+// LIP — Localizador Inteligente de Produtos (Sprint S-6.2)
+router.get('/search', (req, res) => {
+  const termo = String(req.query.q || req.query.nome || req.query.codigo || '').trim();
+  const modoFiscal = isModoFiscalQuery(req.query.modo_fiscal);
+  const filtroFiscal = filtroSqlModoFiscalProduto(modoFiscal, 'p');
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const limite = Math.min(Math.max(parseInt(req.query.limite, 10) || 20, 1), 50);
+
+  function removeDiacritics(str) {
+    if (!str) return '';
+    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  }
+
+  if (!termo) {
+    if (req.query.frequentes === '1' || req.query.frequentes === 'true') {
+      const hoje = new Date();
+      const trintaDias = new Date();
+      trintaDias.setDate(hoje.getDate() - 30);
+      const sqlBase = sqlRankingProdutos(modoFiscal);
+      const sqlFrequentes = `
+        SELECT
+          p.id,
+          p.codigo,
+          p.codigo_barras,
+          p.nome,
+          p.preco_venda,
+          p.fornecedor,
+          p.estoque_atual,
+          c.nome AS categoria_nome,
+          ranked.quantidade_vendida
+        FROM (
+          ${sqlBase}
+          HAVING quantidade_vendida > 0
+          ORDER BY quantidade_vendida DESC
+          LIMIT ?
+        ) ranked
+        INNER JOIN produtos p ON p.id = ranked.id
+        LEFT JOIN categorias c ON c.id = p.categoria_id
+        ORDER BY ranked.quantidade_vendida DESC
+      `;
+      return db.all(sqlFrequentes, [
+        trintaDias.toISOString().slice(0, 10),
+        hoje.toISOString().slice(0, 10),
+        limite
+      ], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const items = (rows || []).map((row) => ({
+          id: row.id,
+          nome: row.nome,
+          codigo: row.codigo || '',
+          codigo_barras: row.codigo_barras || '',
+          categoria: row.categoria_nome || '',
+          marca: row.fornecedor || '',
+          fabricante: row.fornecedor || '',
+          referencia: row.codigo || String(row.id),
+          estoque: Number(row.estoque_atual || 0),
+          preco_venda: Number(row.preco_venda || 0),
+          frequente: true
+        }));
+        return res.json({ items, total: items.length, offset: 0, limite });
+      });
+    }
+    return res.json({ items: [], total: 0, offset, limite });
+  }
+
+  const termoNormalized = removeDiacritics(termo.toLowerCase());
+  const buscaLike = `%${termo}%`;
+  const buscaLikeNormalized = `%${termoNormalized}%`;
+  const buscaNumero = termo.replace(/\D/g, '') || termo;
+  const termoLower = termo.toLowerCase();
+  const replacements = {
+    'á':'a','à':'a','â':'a','ã':'a','ä':'a',
+    'é':'e','è':'e','ê':'e','ë':'e',
+    'í':'i','ì':'i','î':'i','ï':'i',
+    'ó':'o','ò':'o','ô':'o','õ':'o','ö':'o',
+    'ú':'u','ù':'u','û':'u','ü':'u',
+    'ç':'c','ñ':'n'
+  };
+  const replaceChain = Object.keys(replacements).reduce((acc, ch) => {
+    return `REPLACE(${acc}, '${ch}', '${replacements[ch]}')`;
+  }, 'LOWER(p.nome)');
+
+  const sql = `
+    SELECT
+      p.id,
+      p.codigo,
+      p.codigo_barras,
+      p.nome,
+      p.unidade,
+      p.preco_venda,
+      p.fornecedor,
+      p.estoque_atual,
+      COALESCE(p.saldo_fiscal, 0) AS saldo_fiscal,
+      COALESCE(p.saldo_nao_fiscal, 0) AS saldo_nao_fiscal,
+      c.nome AS categoria_nome,
+      s.nome AS subcategoria_nome,
+      CASE
+        WHEN LOWER(TRIM(COALESCE(p.codigo_barras, ''))) = ?
+          OR LOWER(TRIM(COALESCE(p.codigo, ''))) = ?
+          OR CAST(p.id AS TEXT) = ?
+        THEN 1 ELSE 0
+      END AS match_exato
+    FROM produtos p
+    LEFT JOIN categorias c ON c.id = p.categoria_id
+    LEFT JOIN subcategorias s ON s.id = p.subcategoria_id
+    WHERE COALESCE(p.ativo, 1) = 1
+      AND (
+        CAST(p.id AS TEXT) = ?
+        OR LOWER(COALESCE(p.codigo, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(p.codigo_barras, '')) LIKE LOWER(?)
+        OR (${replaceChain}) LIKE ?
+        OR LOWER(COALESCE(p.fornecedor, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(c.nome, '')) LIKE LOWER(?)
+        OR LOWER(COALESCE(s.nome, '')) LIKE LOWER(?)
+      )
+      ${filtroFiscal}
+    ORDER BY match_exato DESC, p.nome ASC
+    LIMIT ? OFFSET ?
+  `;
+
+  const params = [
+    termoLower, termoLower, buscaNumero,
+    buscaNumero, buscaLike, buscaLike, buscaLikeNormalized,
+    buscaLike, buscaLike, buscaLike,
+    limite, offset
+  ];
+
+  db.all(sql, params, (err, rows) => {
+    if (err) {
+      console.error('Erro LIP /produtos/search:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    const items = (rows || []).map((row) => {
+      const norm = normalizarProdutoResposta(row, modoFiscal);
+      return {
+        id: norm.id,
+        nome: norm.nome,
+        codigo: norm.codigo || '',
+        codigo_barras: norm.codigo_barras || '',
+        referencia: norm.codigo || String(norm.id),
+        categoria: norm.categoria || norm.categoria_nome || '',
+        subcategoria: norm.subcategoria || norm.subcategoria_nome || '',
+        marca: norm.fornecedor || '',
+        fabricante: norm.fornecedor || '',
+        estoque: Number(norm.estoque_exibido ?? norm.estoque_atual ?? 0),
+        preco_venda: Number(norm.preco_venda || 0),
+        preco_promocional: norm.preco_promocional,
+        tem_promocao: norm.tem_promocao,
+        unidade: norm.unidade || 'UN',
+        match_exato: row.match_exato
+      };
+    });
+
+    res.json({ items, total: items.length, offset, limite, hasMore: items.length === limite });
+  });
+});
+
 router.get('/ranking-vendas', (req, res) => {
   const hoje = new Date();
   const seteDiasAtras = new Date();

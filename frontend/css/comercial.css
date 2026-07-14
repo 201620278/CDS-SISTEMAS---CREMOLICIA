@@ -1,0 +1,119 @@
+/* Motor Comercial — Navegação por Fluxo de Trabalho (Sprint S-2.2) */
+
+.sidebar-comercial-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+
+.sidebar-comercial-submenu {
+    padding: 0.15rem 0 0.35rem;
+}
+
+.sidebar-comercial-nav {
+    padding-bottom: 0.25rem;
+}
+
+.sidebar-comercial-separator {
+    list-style: none;
+    margin: 0.35rem 0.85rem 0.2rem 1.35rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-comercial-group {
+    list-style: none;
+    padding: 0.2rem 0.85rem 0.05rem 1.35rem;
+    margin: 0;
+}
+
+.sidebar-comercial-group__label {
+    display: block;
+    font-size: 0.58rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.38);
+    line-height: 1.35;
+}
+
+.sidebar-comercial-submenu .nav-link {
+    display: flex;
+    align-items: center;
+    min-height: 1.95rem;
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 0.32rem 0.85rem 0.32rem 1.35rem;
+    margin: 0.05rem 0.35rem;
+    border-radius: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.sidebar-comercial-submenu .nav-link:hover {
+    color: #fff !important;
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-comercial-submenu .nav-link.active {
+    color: #fff !important;
+    background-color: rgba(255, 255, 255, 0.14);
+    font-weight: 600;
+}
+
+.sidebar-comercial-submenu .nav-link i.fas {
+    flex-shrink: 0;
+    width: 1rem;
+    font-size: 0.75rem;
+    text-align: center;
+    margin-right: 0.45rem;
+}
+
+.sidebar-comercial-submenu .nav-link .sidebar-nav-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sidebar-comercial-submenu .badge {
+    flex-shrink: 0;
+    font-size: 0.62rem;
+}
+
+#page-content .motor-comercial-page {
+    padding: 0.25rem 0 1.5rem;
+}
+
+#page-content .cds-dashboard-layout,
+#page-content .cds-consulta-layout,
+#page-content .cds-wizard-layout,
+#page-content .cds-fullscreen-layout {
+    height: calc(100vh - 140px);
+    min-height: 0;
+    max-height: calc(100vh - 140px);
+    overflow: hidden;
+}
+
+#page-content .cds-wizard-layout__content {
+    min-height: 0;
+    overflow-y: auto;
+}
+
+#page-content .cds-wizard-layout__actions {
+    flex-shrink: 0;
+}
+
+@media (max-width: 1200px) {
+    #page-content .cds-dashboard-layout__content,
+    #page-content .cds-consulta-layout__content,
+    #page-content .cds-wizard-layout__content {
+        overflow-x: auto;
+    }
+}
+
+@media (max-width: 768px) {
+    #page-content .motor-comercial-page {
+        padding-bottom: 2.5rem;
+    }
+}

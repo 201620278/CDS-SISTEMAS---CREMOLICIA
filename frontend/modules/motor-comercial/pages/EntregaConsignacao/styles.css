@@ -1,0 +1,245 @@
+/**
+ * EntregaConsignacao Page Styles
+ *
+ * Sprint 3.3: Tela de Entrega da Consignação — estilos da Entrega.
+ *
+ * @module frontend/modules/motor-comercial/pages/EntregaConsignacao
+ */
+
+/* Entrega Header */
+.cds-entrega-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-lg) 0;
+  border-bottom: 1px solid var(--color-neutral-200);
+}
+
+.cds-entrega-header__title {
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-neutral-900);
+}
+
+.cds-entrega-header__subtitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-600);
+}
+
+/* Entrega Content */
+.cds-entrega-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+  min-height: 400px;
+}
+
+/* Entrega Details */
+.cds-entrega-details {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-md);
+}
+
+.cds-entrega-details__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.cds-entrega-details__field label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-neutral-600);
+}
+
+.cds-entrega-details__field div {
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-900);
+}
+
+/* Entrega Summary */
+.cds-entrega-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--spacing-md);
+}
+
+/* Entrega Checklist */
+.cds-entrega-checklist {
+  background-color: var(--color-neutral-50);
+  border: 1px solid var(--color-neutral-200);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+}
+
+.cds-entrega-checklist__title {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-neutral-900);
+}
+
+.cds-entrega-checklist__items {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm);
+}
+
+.cds-entrega-checklist__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.cds-entrega-checklist__item--valid {
+  border-left: 3px solid var(--color-success-500);
+}
+
+.cds-entrega-checklist__item--invalid {
+  border-left: 3px solid var(--color-error-500);
+}
+
+.cds-entrega-checklist__icon {
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-sm);
+}
+
+.cds-entrega-checklist__item--valid .cds-entrega-checklist__icon {
+  color: var(--color-success-600);
+}
+
+.cds-entrega-checklist__item--invalid .cds-entrega-checklist__icon {
+  color: var(--color-error-600);
+}
+
+.cds-entrega-checklist__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-neutral-700);
+}
+
+/* Entrega Items */
+.cds-entrega-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.cds-entrega-items__title {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-neutral-900);
+}
+
+/* Entrega Impact */
+.cds-entrega-impact {
+  background-color: var(--color-primary-50);
+  border: 1px solid var(--color-primary-200);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+}
+
+.cds-entrega-impact__title {
+  margin: 0 0 var(--spacing-sm) 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary-900);
+}
+
+.cds-entrega-impact__description {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-primary-700);
+}
+
+.cds-entrega-impact__list {
+  margin: 0;
+  padding-left: var(--spacing-lg);
+  list-style-type: disc;
+}
+
+.cds-entrega-impact__list li {
+  font-size: var(--font-size-sm);
+  color: var(--color-primary-800);
+  margin-bottom: var(--spacing-xs);
+}
+
+/* Entrega Footer */
+.cds-entrega-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: var(--spacing-lg) 0;
+  border-top: 1px solid var(--color-neutral-200);
+}
+
+.cds-entrega-footer__left {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.cds-entrega-footer__right {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+/* Responsive */
+@media (max-width: 1280px) {
+  .cds-entrega-details {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cds-entrega-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cds-entrega-checklist__items {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1024px) {
+  .cds-entrega-details {
+    grid-template-columns: 1fr;
+  }
+
+  .cds-entrega-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .cds-entrega-footer {
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .cds-entrega-footer__left,
+  .cds-entrega-footer__right {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .cds-entrega-footer button {
+    flex: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .cds-entrega-header__title {
+    font-size: var(--font-size-xl);
+  }
+
+  .cds-entrega-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .cds-entrega-checklist__items {
+    grid-template-columns: 1fr;
+  }
+}

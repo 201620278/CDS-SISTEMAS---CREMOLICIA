@@ -989,6 +989,80 @@ function normalizarPagamentosSemTef(pagamentos) {
         }));
 }
 
+/**
+ * Rateia pagamentos mistos em fiscal × não fiscal (mesma prioridade do DistribuidorPagamento).
+ * Evita enviar ao backend o array bruto acumulado (origem SEFAZ 866).
+ */
+function ratearPagamentosMistosFiscalNaoFiscal(pagamentos = [], totalFiscal = 0, totalNaoFiscal = 0) {
+    let saldoFiscal = Number(totalFiscal) || 0;
+    let saldoNaoFiscal = Number(totalNaoFiscal) || 0;
+    const recebimentosFiscal = [];
+    const recebimentosNaoFiscal = [];
+    const prioridade = ['pix', 'cartao_debito', 'cartao_credito', 'cartao', 'dinheiro'];
+
+    const ordenados = [...(pagamentos || [])].sort((a, b) => {
+        const pa = prioridade.indexOf(String(a.forma_pagamento || '').toLowerCase());
+        const pb = prioridade.indexOf(String(b.forma_pagamento || '').toLowerCase());
+        return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb);
+    });
+
+    for (const pagamento of ordenados) {
+        let valorDisponivel = Number(pagamento.valor || 0);
+        if (valorDisponivel <= 0) continue;
+
+        if (saldoFiscal > 0) {
+            const valorFiscal = Math.min(saldoFiscal, valorDisponivel);
+            if (valorFiscal > 0) {
+                recebimentosFiscal.push({
+                    ...pagamento,
+                    forma_pagamento: normalizarFormaPagamentoTEF(pagamento.forma_pagamento),
+                    valor: valorFiscal,
+                    tipo_recebimento: 'fiscal'
+                });
+                saldoFiscal -= valorFiscal;
+                valorDisponivel -= valorFiscal;
+            }
+        }
+
+        if (valorDisponivel > 0 && saldoNaoFiscal > 0) {
+            const valorNf = Math.min(saldoNaoFiscal, valorDisponivel);
+            recebimentosNaoFiscal.push({
+                ...pagamento,
+                forma_pagamento: normalizarFormaPagamentoTEF(pagamento.forma_pagamento),
+                valor: valorNf,
+                tipo_recebimento: 'nao_fiscal'
+            });
+            saldoNaoFiscal -= valorNf;
+            valorDisponivel -= valorNf;
+        }
+    }
+
+    return {
+        fiscais: recebimentosFiscal,
+        naoFiscais: recebimentosNaoFiscal,
+        todos: [...recebimentosFiscal, ...recebimentosNaoFiscal]
+    };
+}
+
+/**
+ * Monta pagamentos do body a partir dos mistos já rateados (nunca o acumulado bruto da UI).
+ */
+function montarPagamentosMistosParaEnvio(pagamentosMistos, totalFiscal, totalNaoFiscal) {
+    const rateio = ratearPagamentosMistosFiscalNaoFiscal(
+        normalizarPagamentosSemTef(pagamentosMistos),
+        totalFiscal,
+        totalNaoFiscal
+    );
+    console.log('[PDV-PAG] rateio mistos → NFC-e/origem', {
+        totalFiscal,
+        totalNaoFiscal,
+        entrada: pagamentosMistos,
+        fiscais: rateio.fiscais,
+        naoFiscais: rateio.naoFiscais
+    });
+    return rateio.todos.length > 0 ? rateio.todos : normalizarPagamentosSemTef(pagamentosMistos);
+}
+
 async function concluirPagamentoNaoFiscalVenda(vendaId, pagamento, emitirFiscal = false) {
     if (!obterTerminalIdPdv()) {
         throw new Error('Terminal não registrado. Aguarde o registro do PDV ou reinicie a aplicação.');
@@ -3593,7 +3667,11 @@ async function executarFinalizacaoVenda(emitirFiscal = false, cpfCnpjNota = null
             }
         } else if (deveUsarTefAutomatico && ehPagamentoMisto) {
             const pagamentosComTEF = await processarPagamentosMistosTEF(pagamentosMistos);
-            dados.pagamentos = pagamentosComTEF;
+            dados.pagamentos = montarPagamentosMistosParaEnvio(
+                pagamentosComTEF,
+                totalFiscal,
+                totalNaoFiscal
+            );
         } else if (deveUsarTefAutomatico) {
             if (totalNaoFiscal > 0) {
                 const pagamentoNaoFiscal = await new Promise((resolve, reject) => {
@@ -3660,7 +3738,12 @@ async function executarFinalizacaoVenda(emitirFiscal = false, cpfCnpjNota = null
             }
 
             if (ehPagamentoMisto) {
-                dados.pagamentos = normalizarPagamentosSemTef(pagamentosMistos);
+                // Origem <pag>: ratear — NÃO enviar pagamentosMistos acumulados brutos
+                dados.pagamentos = montarPagamentosMistosParaEnvio(
+                    pagamentosMistos,
+                    totalFiscal,
+                    totalNaoFiscal
+                );
                 dados.forma_pagamento = 'misto';
             } else if (totalNaoFiscal > 0) {
                 const formaFiscal = obterFormaPagamentoFiscal();

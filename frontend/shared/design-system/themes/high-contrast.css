@@ -1,0 +1,84 @@
+/**
+ * Tema Alto Contraste
+ * Sprint UX/UI 2.0.1
+ *
+ * Ativado por: data-theme="high-contrast" | class="theme-high-contrast"
+ * Foco em legibilidade e WCAG AAA onde possível.
+ */
+
+:root[data-theme='high-contrast'],
+[data-theme='high-contrast'],
+.theme-high-contrast {
+  color-scheme: light;
+
+  --color-bg: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f0f0f0;
+  --color-surface-hover: #e8e8e8;
+  --color-border: #000000;
+  --color-border-strong: #000000;
+  --color-border-focus: #0000ee;
+  --color-text: #000000;
+  --color-text-secondary: #000000;
+  --color-text-muted: #1a1a1a;
+  --color-text-inverse: #ffffff;
+  --color-text-disabled: #595959;
+  --color-overlay: rgba(0, 0, 0, 0.75);
+  --color-focus-ring: rgba(0, 0, 238, 0.55);
+  --color-scrollbar: #cccccc;
+  --color-scrollbar-thumb: #000000;
+
+  --color-primary-500: #0000ee;
+  --color-primary-600: #0000cc;
+  --color-primary-700: #000099;
+
+  --color-hover: #e8e8e8;
+  --color-hover-strong: #d0d0d0;
+  --color-focus: #0000ee;
+  --color-disabled: #595959;
+  --color-disabled-bg: #f0f0f0;
+  --color-disabled-text: #595959;
+
+  --color-warning: #665200;
+  --color-warning-hover: #332900;
+  --color-success: #006600;
+  --color-success-hover: #004d00;
+
+  --color-action: #0000ee;
+  --color-action-hover: #0000cc;
+  --color-action-active: #000099;
+  --color-action-text: #ffffff;
+  --color-danger: #b00000;
+  --color-danger-hover: #8a0000;
+  --color-success-action: #006600;
+  --color-success-action-hover: #004d00;
+
+  --color-info-bg: #e6eeff;
+  --color-info-border: #0000ee;
+  --color-info-text: #000066;
+  --color-success-bg: #e6ffe6;
+  --color-success-border: #006600;
+  --color-success-text: #003300;
+  --color-warning-bg: #fff3cd;
+  --color-warning-border: #665200;
+  --color-warning-text: #332900;
+  --color-error-bg: #ffe6e6;
+  --color-error-border: #b00000;
+  --color-error-text: #660000;
+
+  --color-skeleton-base: #d0d0d0;
+  --color-skeleton-highlight: #f0f0f0;
+
+  --border-width-thin: 2px;
+  --border-width-normal: 3px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: 0 0 0 2px #000000;
+  --shadow-lg: 0 0 0 3px #000000;
+  --shadow-focus: 0 0 0 3px #0000ee;
+}

@@ -2084,6 +2084,10 @@ function inicializarBanco() {
   db.serialize(() => {
     criarTabelas();
     criarTabelasMiip();
+    const { aplicarMigrationsMotorComercialSync } = require('./motores/motor-comercial/migrations');
+    aplicarMigrationsMotorComercialSync(db, (err) => {
+      if (err) console.error('Erro ao aplicar migrations Motor Comercial:', err.message);
+    });
     aplicarAlteracoesPosCriacao();
     migrarDadosCaixaSessoes(db);
     inserirConfiguracoesPadrao();

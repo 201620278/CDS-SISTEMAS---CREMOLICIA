@@ -1,0 +1,92 @@
+/**
+ * CDS Design System — Dropdown
+ * Sprint UX/UI 2.0.1
+ */
+
+.cds-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.cds-dropdown__menu {
+  position: absolute;
+  top: calc(100% + var(--spacing-xs));
+  left: 0;
+  z-index: var(--z-dropdown);
+  min-width: 180px;
+  max-width: 320px;
+  padding: var(--spacing-xs);
+  margin: 0;
+  list-style: none;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--easing-out),
+    transform var(--duration-fast) var(--easing-out);
+}
+
+.cds-dropdown.is-open .cds-dropdown__menu,
+.cds-dropdown__menu.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.cds-dropdown__menu--right {
+  left: auto;
+  right: 0;
+}
+
+.cds-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-family: var(--font-family-primary);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-out);
+}
+
+.cds-dropdown__item:hover,
+.cds-dropdown__item:focus-visible {
+  background-color: var(--color-surface-hover);
+  outline: none;
+}
+
+.cds-dropdown__item:disabled,
+.cds-dropdown__item.is-disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.cds-dropdown__item--danger {
+  color: var(--color-danger);
+}
+
+.cds-dropdown__separator {
+  height: var(--border-width-thin);
+  margin: var(--spacing-xs) 0;
+  background-color: var(--color-border);
+  border: none;
+}
+
+.cds-dropdown__label {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  letter-spacing: var(--letter-spacing-caps);
+  text-transform: uppercase;
+}

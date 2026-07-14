@@ -1,0 +1,178 @@
+/**
+ * UX Enterprise — utilitários visuais compartilhados (Motor Comercial)
+ * Sprint DS-02 — SEM sobrescrita global de h1/h2/h3
+ *
+ * Hierarquia tipográfica: use classes do DS (cds-eyebrow, cds-title, cds-page-header).
+ *
+ * @module frontend/modules/motor-comercial/styles/ux-enterprise
+ */
+
+/* Meta-informação contextual — NÃO substitui títulos de página */
+.cds-ux-page-header__meta,
+.cds-fechar-consignacao__header .cds-description,
+.cds-preparar-entrega__header .cds-description,
+.cds-extrato-header__meta,
+.cds-cockpit-header__meta,
+.cds-analytics-header__meta {
+  color: var(--color-text-secondary);
+}
+
+/* Sidebars operacionais */
+.cds-extrato-sidebar,
+.cds-cockpit-sidebar,
+.cds-analytics-sidebar {
+  padding: var(--spacing-md);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-lg);
+  border: var(--border-width-thin) solid var(--color-border);
+}
+
+.cds-extrato-sidebar h3,
+.cds-cockpit-sidebar__title,
+.cds-analytics-sidebar__title {
+  margin: 0 0 var(--spacing-md);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-caps);
+  color: var(--color-text-muted);
+}
+
+.cds-extrato-sidebar__item,
+.cds-cockpit-sidebar__item,
+.cds-analytics-sidebar__item {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  transition: background-color var(--duration-fast), color var(--duration-fast);
+}
+
+.cds-extrato-sidebar__item:hover,
+.cds-cockpit-sidebar__item:hover,
+.cds-analytics-sidebar__item:hover,
+.cds-analytics-sidebar__item--active,
+.cds-cockpit-sidebar__item--active {
+  background: var(--color-hover);
+  color: var(--color-action);
+}
+
+/* Rodapés operacionais */
+.cds-extrato-footer,
+.cds-analytics-footer,
+.cds-cockpit-footer {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Estados padronizados */
+.cds-ux-state-loading,
+.cds-ux-state-empty,
+.cds-ux-state-error {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+/* UX-12 / UX-20 — Prestação Estação / Locator */
+.cds-prestacao-estacao__context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  font-size: 0.875rem;
+}
+
+.cds-prestacao-locator__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 960px;
+}
+
+.cds-prestacao-estacao__body--fill {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden !important;
+}
+
+.cds-prestacao-estacao__body--fill #fechar-consignacao-content,
+.cds-prestacao-estacao__body--fill .cds-fechar-consignacao__momento--grade-fill {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.cds-fechar-consignacao__titulo--compact {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.cds-fechar-consignacao__grade-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--color-neutral-200, #e2e8f0);
+  border-radius: 8px;
+  background: var(--color-surface, #fff);
+}
+
+@media (min-width: 1366px) {
+  .cds-prestacao-estacao-workspace .cds-fechar-consignacao__grade-scroll {
+    min-height: 60vh;
+  }
+}
+
+/* UX-20 — Preparar / Entrega Workspace */
+.cds-preparar-entrega__credit-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--color-neutral-200, #e2e8f0);
+  border-radius: 8px;
+  background: var(--color-neutral-50, #f8fafc);
+  font-size: 0.875rem;
+}
+
+.cds-preparar-entrega__credit-strip strong {
+  font-weight: 700;
+}
+
+.cds-entrega-status-banner {
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.75rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.cds-entrega-status-banner--ok {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.cds-entrega-status-banner--block {
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+.cds-entrega-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}

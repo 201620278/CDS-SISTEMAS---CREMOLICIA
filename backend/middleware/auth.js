@@ -28,7 +28,14 @@ const PERMISSOES_DISPONIVEIS = [
   'relatorios',
   'auditoria',
   'categorias',
-  'gerenciar_faixa_atacado'
+  'gerenciar_faixa_atacado',
+  'COMERCIAL_VISUALIZAR',
+  'COMERCIAL_CONSIGNACAO',
+  'COMERCIAL_ACERTO',
+  'COMERCIAL_LIMITE',
+  'COMERCIAL_PERDAS',
+  'COMERCIAL_CORTESIAS',
+  'COMERCIAL_DASHBOARD'
 ];
 
 function extrairToken(req) {

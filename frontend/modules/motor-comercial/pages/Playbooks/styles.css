@@ -1,0 +1,143 @@
+.cds-playbooks-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4, 1rem);
+  padding: var(--space-4, 1rem) 0;
+}
+
+.cds-playbooks-header__actions {
+  display: flex;
+  gap: var(--space-2, 0.5rem);
+  flex-wrap: wrap;
+}
+
+.cds-playbooks-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 0.25rem);
+}
+
+.cds-playbooks-sidebar__item {
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-md, 8px);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cds-playbooks-sidebar__item--active,
+.cds-playbooks-sidebar__item:hover {
+  background: var(--color-surface-muted, var(--color-neutral-100));
+  border-color: var(--color-border);
+}
+
+.cds-playbooks-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6, 1.5rem);
+}
+
+.cds-playbooks-filters__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3, 0.75rem);
+  align-items: center;
+}
+
+.cds-playbooks-kpis,
+.cds-playbooks-categorias {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: var(--space-3, 0.75rem);
+}
+
+.cds-playbooks-categoria {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3, 0.75rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm, none);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.cds-playbooks-categoria:hover {
+  border-color: var(--color-primary, var(--color-border));
+  box-shadow: var(--shadow-md, 0 4px 12px rgb(0 0 0 / 8%));
+}
+
+.cds-playbooks-progress {
+  margin: var(--space-4, 1rem) 0;
+}
+
+.cds-playbooks-progress__bar {
+  height: 8px;
+  background: var(--color-primary);
+  border-radius: var(--radius-sm, 4px);
+  transition: width 0.3s ease;
+}
+
+.cds-playbooks-passo-atual {
+  padding: var(--space-4, 1rem);
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: var(--space-4, 1rem);
+  background: var(--color-primary-muted, var(--color-surface-muted));
+  color: var(--color-text);
+}
+
+.cds-playbooks-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 0.5rem);
+}
+
+.cds-playbooks-checklist__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 0.75rem);
+  padding: var(--space-2, 0.5rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.cds-playbooks-drawer__section {
+  margin-bottom: var(--space-4, 1rem);
+}
+
+.cds-playbooks-drawer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 0.5rem);
+}
+
+.cds-executive-playbooks-card {
+  cursor: pointer;
+}
+
+.cds-cliente360-playbooks-panel {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3, 0.75rem);
+  margin-bottom: var(--space-4, 1rem);
+}
+
+@media (max-width: 768px) {
+  .cds-playbooks-header {
+    flex-direction: column;
+  }
+
+  .cds-cliente360-playbooks-panel {
+    grid-template-columns: 1fr;
+  }
+}

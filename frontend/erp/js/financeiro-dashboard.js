@@ -53,11 +53,12 @@ function renderDashboardFinanceiro(periodo) {
       </div>
     </div>
 
-    <div class="dashboard-box">
+    <div class="dashboard-box cds-chart-panel">
       <div class="dashboard-box-header">
-        <h4>Gráfico Gerencial</h4>
+        <h4 class="cds-chart-panel__title">Visão gerencial</h4>
       </div>
-      <div id="graficoFinanceiro" style="height: 300px;">
+      <div id="financeiroGraficoKpis"></div>
+      <div id="graficoFinanceiro" class="cds-chart-panel__canvas">
         <canvas id="chartFinanceiro"></canvas>
       </div>
     </div>
@@ -196,52 +197,106 @@ function preencherAlertasFinanceiros(alertas) {
 
 function renderGraficoFinanceiro(dados) {
   const ctx = document.getElementById('chartFinanceiro');
+  const kpiHost = document.getElementById('financeiroGraficoKpis');
+
+  const recebido = Number(dados.recebido || 0);
+  const pago = Number(dados.pago || 0);
+  const receber = Number(dados.receber || 0);
+  const pagar = Number(dados.pagar || 0);
+  const saldo = recebido - pago;
+
+  if (kpiHost && window.CDSChartTheme) {
+    kpiHost.innerHTML = CDSChartTheme.renderKpiStrip([
+      {
+        label: 'Recebido',
+        value: formatarMoeda(recebido),
+        hint: 'Entradas no período'
+      },
+      {
+        label: 'Pago',
+        value: formatarMoeda(pago),
+        hint: 'Saídas no período'
+      },
+      {
+        label: 'Saldo',
+        value: formatarMoeda(saldo),
+        delta: pago > 0 ? ((recebido - pago) / pago) * 100 : null,
+        hint: 'Recebido − Pago'
+      }
+    ]);
+  }
 
   if (typeof Chart !== 'undefined' && ctx) {
     if (window.chartFinanceiro && typeof window.chartFinanceiro.destroy === 'function') {
       window.chartFinanceiro.destroy();
     }
 
+    const theme = window.CDSChartTheme;
+    if (theme) theme.applyDefaults(Chart);
+
+    const p = theme ? theme.palette() : null;
+    const barColors = p
+      ? [
+          theme.hexToRgba(p.receita, 0.5),
+          theme.hexToRgba(p.comparativo, 0.55),
+          theme.hexToRgba(p.volume, 0.4),
+          theme.hexToRgba(p.hover, 0.4)
+        ]
+      : ['#475569', '#94a3b8', '#64748b', '#c9922e'];
+
+    const dataset = theme
+      ? theme.barsDiscrete('Valores (R$)', [recebido, pago, receber, pagar], barColors)
+      : {
+          label: 'Valores (R$)',
+          data: [recebido, pago, receber, pagar],
+          backgroundColor: barColors,
+          borderWidth: 0,
+          maxBarThickness: 28
+        };
+
+    const options = theme
+      ? theme.baseOptions({
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title(items) {
+                  return items[0] ? items[0].label : '';
+                },
+                label(ctx) {
+                  return ` ${formatarMoeda(ctx.parsed.y)}`;
+                }
+              }
+            }
+          },
+          scales: {
+            y: theme.scaleY({
+              ticks: {
+                callback: (value) => formatarMoeda(value),
+                maxTicksLimit: 5
+              }
+            })
+          }
+        })
+      : {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: { callback: (value) => formatarMoeda(value) }
+            }
+          }
+        };
+
     window.chartFinanceiro = new Chart(ctx, {
       type: 'bar',
       data: {
         labels: ['Recebido', 'Pago', 'A Receber', 'A Pagar'],
-        datasets: [{
-          label: 'Valores (R$)',
-          data: [
-            Number(dados.recebido || 0),
-            Number(dados.pago || 0),
-            Number(dados.receber || 0),
-            Number(dados.pagar || 0)
-          ],
-          backgroundColor: [
-            '#28a745',
-            '#dc3545',
-            '#ffc107',
-            '#6f42c1'
-          ],
-          borderWidth: 1
-        }]
+        datasets: [dataset]
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          y: {
-            beginAtZero: true,
-            ticks: {
-              callback: function(value) {
-                return formatarMoeda(value);
-              }
-            }
-          }
-        },
-        plugins: {
-          legend: {
-            display: false
-          }
-        }
-      }
+      options
     });
   } else {
     if (ctx && ctx.parentElement) {

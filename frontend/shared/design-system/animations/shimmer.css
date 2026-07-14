@@ -1,0 +1,38 @@
+/**
+ * CDS Design System — Shimmer (skeleton)
+ * Sprint UX/UI 2.0.1 — transform only
+ */
+
+@keyframes cds-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.cds-anim-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-skeleton-base);
+  transform: translateZ(0);
+}
+
+.cds-anim-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-skeleton-highlight) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: cds-shimmer 1.4s var(--easing-in-out) infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cds-anim-shimmer::after {
+    animation: none;
+  }
+}

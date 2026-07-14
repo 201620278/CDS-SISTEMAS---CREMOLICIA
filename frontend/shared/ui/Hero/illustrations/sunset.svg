@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 360" fill="none" role="img" aria-label="Entardecer na fazenda">
+  <defs>
+    <linearGradient id="cds-hero-sunset-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5B4B8A"/>
+      <stop offset="35%" stop-color="#C96B4A"/>
+      <stop offset="70%" stop-color="#F0A46A"/>
+      <stop offset="100%" stop-color="#F7D9B8"/>
+    </linearGradient>
+    <linearGradient id="cds-hero-sunset-sun" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFC978"/>
+      <stop offset="100%" stop-color="#F08A3A"/>
+    </linearGradient>
+  </defs>
+  <rect width="480" height="360" fill="url(#cds-hero-sunset-sky)"/>
+  <circle cx="300" cy="168" r="46" fill="url(#cds-hero-sunset-sun)"/>
+  <circle cx="300" cy="168" r="72" fill="#FFC978" opacity="0.2"/>
+  <ellipse cx="108" cy="108" rx="52" ry="16" fill="#6B5698" opacity="0.4"/>
+  <ellipse cx="392" cy="98" rx="44" ry="14" fill="#6B5698" opacity="0.32"/>
+  <ellipse cx="200" cy="128" rx="36" ry="12" fill="#FFFFFF" opacity="0.16"/>
+  <path d="M0 242 C90 212 170 230 255 244 C345 260 405 224 480 240 L480 360 L0 360 Z" fill="#4A3B6E"/>
+  <path d="M0 276 C100 250 180 268 270 282 C360 296 415 264 480 280 L480 360 L0 360 Z" fill="#3A2F58"/>
+  <path d="M0 318 C90 298 170 312 260 322 C350 332 410 310 480 324 L480 360 L0 360 Z" fill="#2D2446"/>
+  <path d="M318 250 L352 228 L386 250 L386 312 L318 312 Z" fill="#5C3F55"/>
+  <rect x="318" y="250" width="68" height="62" fill="#6A485F"/>
+  <rect x="344" y="272" width="16" height="40" rx="2" fill="#3A2A38"/>
+  <rect x="326" y="260" width="12" height="12" rx="1" fill="#FBBF24" opacity="0.75"/>
+  <rect x="366" y="260" width="12" height="12" rx="1" fill="#FBBF24" opacity="0.6"/>
+  <ellipse cx="90" cy="270" rx="18" ry="22" fill="#3D3558"/>
+  <rect x="86" y="280" width="8" height="28" fill="#2A2238"/>
+  <ellipse cx="434" cy="272" rx="16" ry="20" fill="#3D3558"/>
+  <rect x="430" y="282" width="8" height="26" fill="#2A2238"/>
+  <path d="M40 322 H470" stroke="#6B5A78" stroke-width="2" opacity="0.45"/>
+</svg>

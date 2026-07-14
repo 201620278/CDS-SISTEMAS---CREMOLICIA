@@ -1,0 +1,11 @@
+/**
+ * Gerado automaticamente por scripts/build-motor-comercial.js — NÃO editar.
+ */
+module.exports = {
+  "module": "motor-comercial",
+  "version": "1.0.3",
+  "sprint": "UX-10",
+  "buildTime": "2026-07-14 01:33:17",
+  "hash": "28401BE47069CD313C190E5BBA8EFBBDC189861BE127AD3B361327A0ADD94153",
+  "ambiente": "development"
+};

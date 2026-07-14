@@ -159,12 +159,15 @@ function showClienteModal(cliente = null) {
                                 </div>
                                 <div class="col-md-4 mb-3">
                                     <label for="cep" class="form-label">CEP</label>
-                                    <input type="text" class="form-control" id="cep" maxlength="9" value="${isEdit && cliente.cep ? cliente.cep : ''}" placeholder="00000-000">
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="cep" maxlength="9" inputmode="numeric" autocomplete="postal-code" value="${isEdit && cliente.cep ? cliente.cep : ''}" placeholder="00000-000">
+                                        <span class="input-group-text" id="cep-loading" style="display:none;" title="Buscando endereço">
+                                            <i class="fas fa-spinner fa-spin"></i>
+                                        </span>
+                                    </div>
+                                    <small class="text-muted">O endereço é preenchido automaticamente ao informar o CEP.</small>
                                 </div>
-                                <div class="col-md-8 mb-3 d-flex align-items-end">
-                                    <button type="button" class="btn btn-outline-secondary ms-2" id="buscarCepBtn">Buscar Endereço</button>
-                                    <span id="cep-loading" class="ms-2" style="display:none;"><i class="fas fa-spinner fa-spin"></i> Buscando...</span>
-                                </div>
+                                <div class="col-md-8 mb-3"></div>
                                 <div class="col-md-6 mb-3">
                                     <label for="rua" class="form-label">Rua</label>
                                     <input type="text" class="form-control" id="rua" value="${isEdit ? (cliente.rua || '') : ''}">
@@ -204,32 +207,79 @@ function showClienteModal(cliente = null) {
     $('#modal-container').html(modalHtml);
     $('#clienteModal').modal('show');
 
-    // Evento de busca automática ao sair do campo CEP ou clicar no botão
-    $('#cep').on('blur', buscarEnderecoPorCep);
-    $('#buscarCepBtn').on('click', buscarEnderecoPorCep);
+    // Busca automática de endereço ao completar o CEP (8 dígitos)
+    let cepBuscaTimer = null;
+    let ultimoCepConsultado = '';
+    let cepRequest = null;
 
-    function buscarEnderecoPorCep() {
-        const cep = $('#cep').val().replace(/\D/g, '');
+    function formatarCepInput($input) {
+        let digits = String($input.val() || '').replace(/\D/g, '').slice(0, 8);
+        if (digits.length > 5) {
+            digits = digits.replace(/(\d{5})(\d{1,3})/, '$1-$2');
+        }
+        $input.val(digits);
+        return digits.replace(/\D/g, '');
+    }
+
+    function buscarEnderecoPorCep(opcoes = {}) {
+        const { silencioso = false } = opcoes;
+        const cep = formatarCepInput($('#cep'));
+
         if (cep.length !== 8) {
-            showNotification('CEP inválido!', 'warning');
+            if (!silencioso && cep.length > 0) {
+                showNotification('CEP inválido!', 'warning');
+            }
             return;
         }
+
+        if (cep === ultimoCepConsultado) return;
+
+        if (cepRequest && typeof cepRequest.abort === 'function') {
+            cepRequest.abort();
+        }
+
         $('#cep-loading').show();
-        $.getJSON(`https://viacep.com.br/ws/${cep}/json/`, function(data) {
-            $('#cep-loading').hide();
-            if (data.erro) {
-                showNotification('CEP não encontrado!', 'warning');
-                return;
-            }
-            $('#rua').val(data.logradouro || '');
-            $('#bairro').val(data.bairro || '');
-            $('#cidade').val(data.localidade || '');
-            $('#uf').val(data.uf || '');
-        }).fail(function() {
-            $('#cep-loading').hide();
-            showNotification('Erro ao buscar o CEP!', 'danger');
-        });
+        cepRequest = $.getJSON(`https://viacep.com.br/ws/${cep}/json/`)
+            .done(function(data) {
+                $('#cep-loading').hide();
+                if (data.erro) {
+                    ultimoCepConsultado = '';
+                    showNotification('CEP não encontrado!', 'warning');
+                    return;
+                }
+                ultimoCepConsultado = cep;
+                $('#rua').val(data.logradouro || '');
+                $('#bairro').val(data.bairro || '');
+                $('#cidade').val(data.localidade || '');
+                $('#uf').val(data.uf || '');
+                const $numero = $('#numero');
+                if ($numero.length) $numero.trigger('focus');
+            })
+            .fail(function(_xhr, status) {
+                $('#cep-loading').hide();
+                if (status === 'abort') return;
+                ultimoCepConsultado = '';
+                showNotification('Erro ao buscar o CEP!', 'danger');
+            });
     }
+
+    $('#cep').on('input', function() {
+        const cep = formatarCepInput($(this));
+        clearTimeout(cepBuscaTimer);
+        if (cep.length < 8) {
+            ultimoCepConsultado = '';
+            return;
+        }
+        cepBuscaTimer = setTimeout(() => buscarEnderecoPorCep({ silencioso: true }), 250);
+    });
+
+    $('#cep').on('blur', function() {
+        clearTimeout(cepBuscaTimer);
+        const cep = formatarCepInput($(this));
+        if (cep.length === 8) {
+            buscarEnderecoPorCep({ silencioso: true });
+        }
+    });
 }
 
 // Save cliente

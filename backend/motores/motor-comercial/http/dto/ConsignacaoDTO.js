@@ -1,0 +1,547 @@
+/**
+ * ConsignacaoDTO — DTOs HTTP para Consignação.
+ *
+ * Sprint 2.5: API REST — DTOs de consignação.
+ *
+ * @module motores/motor-comercial/http/dto/ConsignacaoDTO
+ */
+
+class CriarConsignacaoRequest {
+  /**
+   * @param {Object} data
+   * @param {string} data.clienteId
+   * @param {string} data.perfilComercialId
+   * @param {Object} [data.documento]
+   * @param {string} [data.observacao]
+   * @param {string} [data.dataAbertura]
+   * @param {string} [data.dataEntregaPrevista]
+   * @param {string} [data.usuarioId]
+   * @param {string} [data.correlationId]
+   */
+  static fromJSON(data) {
+    return {
+      clienteId: data.clienteId,
+      perfilComercialId: data.perfilComercialId,
+      documento: data.documento || null,
+      documentoExterno: data.documentoExterno || null,
+      observacao: data.observacao || null,
+      dataAbertura: data.dataAbertura || new Date().toISOString(),
+      dataEntregaPrevista: data.dataEntregaPrevista || null,
+      usuarioId: data.usuarioId || null,
+      correlationId: data.correlationId || null
+    };
+  }
+
+  /**
+   * Valida os dados da requisição.
+   * @param {Object} data
+   * @returns {Object|null}
+   */
+  static validate(data) {
+    const errors = [];
+
+    if (!data.clienteId) {
+      errors.push('clienteId é obrigatório');
+    }
+    if (!data.perfilComercialId) {
+      errors.push('perfilComercialId é obrigatório');
+    }
+
+    return errors.length > 0 ? { errors } : null;
+  }
+}
+
+class EditarConsignacaoRequest {
+  /**
+   * @param {Object} data
+   * @param {string} [data.observacao]
+   * @param {string} [data.dataEntregaPrevista]
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data) {
+    return {
+      observacao: data.observacao,
+      documentoExterno: data.documentoExterno,
+      dataEntregaPrevista: data.dataEntregaPrevista,
+      usuarioId: data.usuarioId || null
+    };
+  }
+}
+
+class AdicionarItemRequest {
+  /**
+   * @param {Object} data
+   * @param {string} data.produtoId
+   * @param {number} data.quantidade
+   * @param {number} [data.precoUnitario]
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data) {
+    return {
+      produtoId: data.produtoId,
+      quantidade: data.quantidade,
+      precoUnitario: data.precoUnitario || 0,
+      usuarioId: data.usuarioId || null
+    };
+  }
+
+  /**
+   * Valida os dados da requisição.
+   * @param {Object} data
+   * @returns {Object|null}
+   */
+  static validate(data) {
+    const errors = [];
+
+    if (!data.produtoId) {
+      errors.push('produtoId é obrigatório');
+    }
+    if (data.quantidade === undefined || data.quantidade === null) {
+      errors.push('quantidade é obrigatória');
+    }
+    if (typeof data.quantidade !== 'number' || data.quantidade <= 0) {
+      errors.push('quantidade deve ser um número positivo');
+    }
+
+    return errors.length > 0 ? { errors } : null;
+  }
+}
+
+class AlterarQuantidadeItemRequest {
+  /**
+   * @param {Object} data
+   * @param {number} data.novaQuantidade
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data) {
+    return {
+      novaQuantidade: data.novaQuantidade,
+      usuarioId: data.usuarioId || null
+    };
+  }
+
+  /**
+   * Valida os dados da requisição.
+   * @param {Object} data
+   * @returns {Object|null}
+   */
+  static validate(data) {
+    const errors = [];
+
+    if (data.novaQuantidade === undefined || data.novaQuantidade === null) {
+      errors.push('novaQuantidade é obrigatória');
+    }
+    if (typeof data.novaQuantidade !== 'number' || data.novaQuantidade < 0) {
+      errors.push('novaQuantidade deve ser um número não negativo');
+    }
+
+    return errors.length > 0 ? { errors } : null;
+  }
+}
+
+class RegistrarEntregaRequest {
+  /**
+   * @param {Object} data
+   * @param {string} [data.observacao]
+   * @param {string} [data.usuarioId]
+   * @param {Object} [data.liberacaoGerencial]
+   * @param {string} [data.supervisorToken]
+   */
+  static fromJSON(data) {
+    const liberacao = data.liberacaoGerencial || null;
+    return {
+      observacao: data.observacao || null,
+      usuarioId: data.usuarioId || null,
+      liberacaoGerencial: liberacao
+        ? {
+            ...liberacao,
+            autorizado: liberacao.autorizado === true || liberacao.autorizado === 'true',
+            supervisorToken: liberacao.supervisorToken || data.supervisorToken || null
+          }
+        : (data.supervisorToken
+          ? { autorizado: true, supervisorToken: data.supervisorToken }
+          : null)
+    };
+  }
+}
+
+class RegistrarEmissaoTermoEntregaRequest {
+  /**
+   * @param {Object} data
+   * @param {string} [data.acao]
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data) {
+    return {
+      acao: data.acao || 'impressao',
+      usuarioId: data.usuarioId || null
+    };
+  }
+}
+
+class AbrirPrestacaoRequest {
+  /**
+   * @param {Object} data
+   * @param {string|number} consignacaoId
+   */
+  static fromJSON(data = {}, consignacaoId = null) {
+    return {
+      consignacaoId: Number(consignacaoId ?? data.consignacaoId),
+      usuarioId: data.usuarioId || null,
+      motivo: data.motivo || null
+    };
+  }
+
+  /**
+   * @param {Object} data
+   * @returns {{ errors: Array<{ field: string, message: string }> }|null}
+   */
+  static validate(data = {}) {
+    const errors = [];
+    const id = Number(data.consignacaoId);
+    if (!Number.isFinite(id) || id <= 0) {
+      errors.push({ field: 'consignacaoId', message: 'consignacaoId é obrigatório e deve ser numérico' });
+    }
+    return errors.length ? { errors } : null;
+  }
+}
+
+function normalizarNumeroPositivo(valor) {
+  if (valor === undefined || valor === null || valor === '') return null;
+  const numero = Number(String(valor).replace(',', '.'));
+  if (!Number.isFinite(numero)) return null;
+  return numero;
+}
+
+class RegistrarDevolucaoRequest {
+  /**
+   * @param {Object} data
+   * @param {number|string} [data.itemId]
+   * @param {number|string} [data.produtoId]
+   * @param {number} data.quantidade
+   * @param {string} [data.observacao]
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data = {}) {
+    const itemId = normalizarNumeroPositivo(data.itemId);
+    const produtoId = normalizarNumeroPositivo(data.produtoId);
+    const quantidade = normalizarNumeroPositivo(data.quantidade);
+    return {
+      itemId: itemId != null ? itemId : null,
+      produtoId: produtoId != null ? produtoId : null,
+      quantidade,
+      observacao: data.observacao || null,
+      usuarioId: data.usuarioId || null
+    };
+  }
+
+  /**
+   * @param {Object} data
+   * @returns {Object|null}
+   */
+  static validate(data = {}) {
+    const errors = [];
+    if (data.itemId == null && data.produtoId == null) {
+      errors.push('itemId ou produtoId é obrigatório');
+    }
+    if (data.quantidade === undefined || data.quantidade === null) {
+      errors.push('quantidade é obrigatória');
+    } else if (typeof data.quantidade !== 'number' || data.quantidade <= 0) {
+      errors.push('quantidade deve ser um número positivo');
+    }
+    return errors.length > 0 ? { errors } : null;
+  }
+}
+
+class TransferenciaRequest {
+  /**
+   * @param {Object} data
+   * @param {string} data.consignacaoDestinoId
+   * @param {Array<string>} data.itemIds
+   * @param {string} [data.observacao]
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data) {
+    return {
+      consignacaoDestinoId: data.consignacaoDestinoId,
+      itemIds: data.itemIds || [],
+      observacao: data.observacao || null,
+      usuarioId: data.usuarioId || null
+    };
+  }
+
+  /**
+   * Valida os dados da requisição.
+   * @param {Object} data
+   * @returns {Object|null}
+   */
+  static validate(data) {
+    const errors = [];
+
+    if (!data.consignacaoDestinoId) {
+      errors.push('consignacaoDestinoId é obrigatório');
+    }
+    if (!data.itemIds || !Array.isArray(data.itemIds) || data.itemIds.length === 0) {
+      errors.push('itemIds é obrigatório e deve conter pelo menos um item');
+    }
+
+    return errors.length > 0 ? { errors } : null;
+  }
+}
+
+class RegistrarVendaRequest {
+  /**
+   * @param {Object} data
+   * @param {string} data.produtoId
+   * @param {number} data.quantidade
+   * @param {number} data.precoVenda
+   * @param {string} [data.observacao]
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data) {
+    return {
+      itemId: data.itemId ?? null,
+      produtoId: data.produtoId,
+      quantidade: data.quantidade,
+      precoVenda: data.precoVenda,
+      observacao: data.observacao || null,
+      usuarioId: data.usuarioId || null
+    };
+  }
+
+  /**
+   * Valida os dados da requisição.
+   * @param {Object} data
+   * @returns {Object|null}
+   */
+  static validate(data) {
+    const errors = [];
+
+    if (!data.produtoId && !data.itemId) {
+      errors.push('itemId ou produtoId é obrigatório');
+    }
+    if (data.quantidade === undefined || data.quantidade === null) {
+      errors.push('quantidade é obrigatória');
+    }
+    if (typeof data.quantidade !== 'number' || data.quantidade <= 0) {
+      errors.push('quantidade deve ser um número positivo');
+    }
+    if (data.precoVenda === undefined || data.precoVenda === null) {
+      errors.push('precoVenda é obrigatório');
+    }
+    if (typeof data.precoVenda !== 'number' || data.precoVenda < 0) {
+      errors.push('precoVenda deve ser um número não negativo');
+    }
+
+    return errors.length > 0 ? { errors } : null;
+  }
+}
+
+class RegistrarPerdaRequest {
+  /**
+   * @param {Object} data
+   * @param {string} data.produtoId
+   * @param {number} data.quantidade
+   * @param {string} [data.motivo]
+   * @param {string} [data.observacao]
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data) {
+    return {
+      itemId: data.itemId ?? null,
+      produtoId: data.produtoId,
+      quantidade: data.quantidade,
+      motivo: data.motivo || null,
+      observacao: data.observacao || null,
+      usuarioId: data.usuarioId || null
+    };
+  }
+
+  /**
+   * Valida os dados da requisição.
+   * @param {Object} data
+   * @returns {Object|null}
+   */
+  static validate(data) {
+    const errors = [];
+
+    if (!data.produtoId && !data.itemId) {
+      errors.push('itemId ou produtoId é obrigatório');
+    }
+    if (data.quantidade === undefined || data.quantidade === null) {
+      errors.push('quantidade é obrigatória');
+    }
+    if (typeof data.quantidade !== 'number' || data.quantidade <= 0) {
+      errors.push('quantidade deve ser um número positivo');
+    }
+
+    return errors.length > 0 ? { errors } : null;
+  }
+}
+
+class RegistrarCortesiaRequest {
+  /**
+   * @param {Object} data
+   * @param {string} data.produtoId
+   * @param {number} data.quantidade
+   * @param {string} [data.motivo]
+   * @param {string} [data.observacao]
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data) {
+    return {
+      itemId: data.itemId ?? null,
+      produtoId: data.produtoId,
+      quantidade: data.quantidade,
+      motivo: data.motivo || null,
+      observacao: data.observacao || null,
+      usuarioId: data.usuarioId || null
+    };
+  }
+
+  /**
+   * Valida os dados da requisição.
+   * @param {Object} data
+   * @returns {Object|null}
+   */
+  static validate(data) {
+    const errors = [];
+
+    if (!data.produtoId && !data.itemId) {
+      errors.push('itemId ou produtoId é obrigatório');
+    }
+    if (data.quantidade === undefined || data.quantidade === null) {
+      errors.push('quantidade é obrigatória');
+    }
+    if (typeof data.quantidade !== 'number' || data.quantidade <= 0) {
+      errors.push('quantidade deve ser um número positivo');
+    }
+
+    return errors.length > 0 ? { errors } : null;
+  }
+}
+
+class RegistrarPagamentoRequest {
+  /**
+   * @param {Object} data
+   * @param {number} data.valor
+   * @param {string} [data.formaPagamento]
+   * @param {string} [data.observacao]
+   * @param {string} [data.usuarioId]
+   */
+  static fromJSON(data = {}) {
+    const valor = normalizarNumeroPositivo(data.valor);
+    return {
+      valor,
+      formaPagamento: data.formaPagamento || null,
+      observacao: data.observacao || null,
+      usuarioId: data.usuarioId || null
+    };
+  }
+
+  /**
+   * Valida os dados da requisição.
+   * @param {Object} data
+   * @returns {{ errors: Array<{ field: string, message: string }> }|null}
+   */
+  static validate(data = {}) {
+    const errors = [];
+    const valor = normalizarNumeroPositivo(data.valor);
+
+    if (valor === null) {
+      errors.push({ field: 'valor', message: "Campo 'valor' é obrigatório." });
+    } else if (valor <= 0) {
+      errors.push({ field: 'valor', message: "Campo 'valor' deve ser um número positivo." });
+    }
+
+    return errors.length ? { errors } : null;
+  }
+}
+
+class ConsignacaoResponse {
+  /**
+   * Converte entidade de domínio para DTO de resposta.
+   * @param {Object} consignacao
+   * @returns {Object}
+   */
+  static toJSON(consignacao) {
+    if (!consignacao) return null;
+
+    return {
+      id: consignacao.id,
+      clienteId: consignacao.clienteId,
+      perfilComercialId: consignacao.perfilComercialId,
+      status: consignacao.status,
+      documento: consignacao.documento,
+      documentoExterno: consignacao.documentoExterno ?? null,
+      observacao: consignacao.observacao,
+      usuarioAberturaId: consignacao.usuarioAberturaId,
+      dataAbertura: consignacao.dataAbertura,
+      dataEntrega: consignacao.dataEntrega,
+      dataEntregaPrevista: consignacao.dataEntregaPrevista,
+      dataFechamento: consignacao.dataFechamento ?? consignacao.dataEncerramento ?? null,
+      dataEncerramento: consignacao.dataEncerramento ?? consignacao.dataFechamento ?? null,
+      // Cache financeiro (ledger) — necessário para Central E5 / saldo a receber
+      valorTotalEntregue: Number(consignacao.valorTotalEntregue ?? 0),
+      valorTotalAcertado: Number(consignacao.valorTotalAcertado ?? 0),
+      valorTotalPago: Number(consignacao.valorTotalPago ?? 0),
+      saldoAberto: Number(consignacao.saldoAberto ?? consignacao.saldo ?? 0),
+      prestacaoContasAtiva: consignacao.prestacaoContasAtiva ?? null,
+      createdAt: consignacao.createdAt,
+      updatedAt: consignacao.updatedAt
+    };
+  }
+}
+
+class ItemConsignacaoResponse {
+  /**
+   * Converte item de consignação para DTO de resposta.
+   * @param {Object} item
+   * @returns {Object}
+   */
+  static toJSON(item) {
+    if (!item) return null;
+
+    const quantidade = Number(
+      item.quantidade != null
+        ? item.quantidade
+        : (item.quantidadeEntregue ?? 0)
+    );
+    const precoUnitario = Number(item.precoUnitario ?? item.preco ?? 0);
+
+    return {
+      id: item.id,
+      consignacaoId: item.consignacaoId,
+      produtoId: item.produtoId,
+      quantidade: Number.isFinite(quantidade) ? quantidade : 0,
+      quantidadeEntregue: Number(item.quantidadeEntregue || quantidade || 0),
+      quantidadeVendida: item.quantidadeVendida || 0,
+      quantidadePerdida: item.quantidadePerdida || 0,
+      quantidadeCortesia: item.quantidadeCortesia || 0,
+      quantidadeDevolvida: item.quantidadeDevolvida || 0,
+      precoUnitario,
+      preco: precoUnitario,
+      precoTotal: item.precoTotal != null ? Number(item.precoTotal) : (quantidade * precoUnitario),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt
+    };
+  }
+}
+
+module.exports = {
+  CriarConsignacaoRequest,
+  EditarConsignacaoRequest,
+  AdicionarItemRequest,
+  AlterarQuantidadeItemRequest,
+  RegistrarEntregaRequest,
+  RegistrarEmissaoTermoEntregaRequest,
+  AbrirPrestacaoRequest,
+  RegistrarDevolucaoRequest,
+  TransferenciaRequest,
+  RegistrarVendaRequest,
+  RegistrarPerdaRequest,
+  RegistrarCortesiaRequest,
+  RegistrarPagamentoRequest,
+  ConsignacaoResponse,
+  ItemConsignacaoResponse
+};

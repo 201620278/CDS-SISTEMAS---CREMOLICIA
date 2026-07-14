@@ -2323,9 +2323,9 @@ function loadCentralEntradas() {
                 <div>
                     <h2 class="mb-1">
                         <span class="central-entradas-hero-icone"><i class="fas fa-inbox"></i></span>
-                        Central Inteligente de Entradas
+                        Central Inteligente de Entradas NF
                     </h2>
-                    <p class="text-muted mb-0">Monitoramento SEFAZ · Identificação MIIP · Workflow até Compras</p>
+                    <p class="text-muted mb-0">Importação, conferência e processamento inteligente das Notas Fiscais de Entrada.</p>
                 </div>
                 <div class="central-entradas-toolbar">
                     <button type="button" class="btn btn-success" id="centralBtnAdicionarDocumento" title="Adicionar documento fiscal via XML">

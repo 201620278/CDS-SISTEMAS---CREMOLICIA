@@ -1,0 +1,1165 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Motor Comercial API",
+    "description": "API oficial do Motor Comercial do CDS Sistemas",
+    "version": "2.5.5",
+    "contact": {
+      "name": "CDS Sistemas",
+      "email": "suporte@cdssistemas.com.br"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000/api/v1/comercial",
+      "description": "Desenvolvimento"
+    },
+    {
+      "url": "https://api.cdssistemas.com.br/api/v1/comercial",
+      "description": "Produção"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Endpoints de health check"
+    },
+    {
+      "name": "Perfil Comercial",
+      "description": "Gestão de perfis comerciais"
+    },
+    {
+      "name": "Consignação",
+      "description": "Gestão de consignações"
+    },
+    {
+      "name": "Projections",
+      "description": "Serviços de projeção e relatórios"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check básico",
+        "description": "Verifica o status básico do serviço",
+        "responses": {
+          "200": {
+            "description": "Serviço saudável",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Informações de versão",
+        "description": "Retorna informações sobre a versão da API",
+        "responses": {
+          "200": {
+            "description": "Informações de versão",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Status detalhado dos componentes",
+        "description": "Retorna o status detalhado de todos os componentes",
+        "responses": {
+          "200": {
+            "description": "Status dos componentes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/perfil-comercial": {
+      "get": {
+        "tags": ["Perfil Comercial"],
+        "summary": "Listar perfis comerciais",
+        "description": "Lista todos os perfis comerciais com filtros opcionais",
+        "parameters": [
+          {
+            "name": "clienteId",
+            "in": "query",
+            "description": "ID do cliente",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "perfilTipo",
+            "in": "query",
+            "description": "Tipo de perfil",
+            "schema": {
+              "type": "string",
+              "enum": ["CONSIGNADO", "A_VISTA", "MISTO"]
+            }
+          },
+          {
+            "name": "ativo",
+            "in": "query",
+            "description": "Status ativo",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "bloqueado",
+            "in": "query",
+            "description": "Status bloqueado",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de perfis",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerfilListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Perfil Comercial"],
+        "summary": "Criar perfil comercial",
+        "description": "Cria um novo perfil comercial",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarPerfilRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Perfil criado com sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerfilResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/perfil-comercial/{id}": {
+      "get": {
+        "tags": ["Perfil Comercial"],
+        "summary": "Consultar perfil por ID",
+        "description": "Consulta um perfil comercial específico",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "ID do perfil",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Perfil encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerfilResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Perfil não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Perfil Comercial"],
+        "summary": "Atualizar perfil",
+        "description": "Atualiza um perfil comercial existente",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "ID do perfil",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AtualizarPerfilRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Perfil atualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerfilResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Perfil não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/perfil-comercial/{id}/bloquear": {
+      "patch": {
+        "tags": ["Perfil Comercial"],
+        "summary": "Bloquear perfil",
+        "description": "Bloqueia um perfil comercial",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "ID do perfil",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BloquearPerfilRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Perfil bloqueado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerfilResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/perfil-comercial/{id}/desbloquear": {
+      "patch": {
+        "tags": ["Perfil Comercial"],
+        "summary": "Desbloquear perfil",
+        "description": "Desbloqueia um perfil comercial",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "ID do perfil",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesbloquearPerfilRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Perfil desbloqueado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerfilResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/perfil-comercial/{id}/limite": {
+      "patch": {
+        "tags": ["Perfil Comercial"],
+        "summary": "Alterar limite",
+        "description": "Altera o limite de crédito de um perfil",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "ID do perfil",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlterarLimiteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Limite alterado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LimiteResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/consignacoes": {
+      "get": {
+        "tags": ["Consignação"],
+        "summary": "Listar consignações",
+        "description": "Lista todas as consignações com filtros opcionais",
+        "parameters": [
+          {
+            "name": "clienteId",
+            "in": "query",
+            "description": "ID do cliente",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "perfilComercialId",
+            "in": "query",
+            "description": "ID do perfil comercial",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Status da consignação",
+            "schema": {
+              "type": "string",
+              "enum": ["RASCUNHO", "ABERTA", "ENTREGUE", "EM_PRESTACAO", "FECHADA", "CANCELADA"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de consignações",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsignacaoListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Consignação"],
+        "summary": "Criar consignação",
+        "description": "Cria uma nova consignação",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarConsignacaoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Consignação criada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsignacaoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/consignacoes/{id}": {
+      "get": {
+        "tags": ["Consignação"],
+        "summary": "Consultar consignação",
+        "description": "Consulta uma consignação específica",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "ID da consignação",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consignação encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsignacaoResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Consignação não encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projections/dashboard": {
+      "get": {
+        "tags": ["Projections"],
+        "summary": "Dashboard comercial",
+        "description": "Retorna dados consolidados do dashboard",
+        "parameters": [
+          {
+            "name": "clienteId",
+            "in": "query",
+            "description": "ID do cliente",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "consignacaoId",
+            "in": "query",
+            "description": "ID da consignação",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Dados do dashboard",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projections/situacao-cliente": {
+      "get": {
+        "tags": ["Projections"],
+        "summary": "Situação do cliente",
+        "description": "Retorna a situação completa de um cliente",
+        "parameters": [
+          {
+            "name": "clienteId",
+            "in": "query",
+            "required": true,
+            "description": "ID do cliente",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Situação do cliente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SituacaoClienteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "clienteId obrigatório",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "StandardResponse": {
+        "type": "object",
+        "required": ["success", "timestamp", "version"],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "example": false
+              },
+              "error": {
+                "type": "object",
+                "required": ["code", "message"],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "details": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "HealthResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string"
+                  },
+                  "motor": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "uptime": {
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "database": {
+                    "type": "string"
+                  },
+                  "repositories": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "VersionResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "versao": {
+                    "type": "string"
+                  },
+                  "api": {
+                    "type": "string"
+                  },
+                  "build": {
+                    "type": "string"
+                  },
+                  "commit": {
+                    "type": "string"
+                  },
+                  "ambiente": {
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "StatusResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "motor": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "componentes": {
+                    "type": "object"
+                  },
+                  "timestamp": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CriarPerfilRequest": {
+        "type": "object",
+        "required": ["clienteId", "perfilTipo", "limiteComercial", "usuarioId"],
+        "properties": {
+          "clienteId": {
+            "type": "string"
+          },
+          "perfilTipo": {
+            "type": "string",
+            "enum": ["CONSIGNADO", "A_VISTA", "MISTO"]
+          },
+          "ativo": {
+            "type": "boolean",
+            "default": true
+          },
+          "limiteComercial": {
+            "type": "number"
+          },
+          "observacoes": {
+            "type": "string"
+          },
+          "motivo": {
+            "type": "string"
+          },
+          "usuarioId": {
+            "type": "string"
+          }
+        }
+      },
+      "AtualizarPerfilRequest": {
+        "type": "object",
+        "properties": {
+          "ativo": {
+            "type": "boolean"
+          },
+          "observacoes": {
+            "type": "string"
+          },
+          "usuarioId": {
+            "type": "string"
+          }
+        }
+      },
+      "BloquearPerfilRequest": {
+        "type": "object",
+        "required": ["motivo", "usuarioId"],
+        "properties": {
+          "motivo": {
+            "type": "string"
+          },
+          "usuarioId": {
+            "type": "string"
+          }
+        }
+      },
+      "DesbloquearPerfilRequest": {
+        "type": "object",
+        "required": ["motivo", "usuarioId"],
+        "properties": {
+          "motivo": {
+            "type": "string"
+          },
+          "usuarioId": {
+            "type": "string"
+          }
+        }
+      },
+      "AlterarLimiteRequest": {
+        "type": "object",
+        "required": ["novoLimite", "motivo", "usuarioId"],
+        "properties": {
+          "novoLimite": {
+            "type": "number"
+          },
+          "motivo": {
+            "type": "string"
+          },
+          "usuarioId": {
+            "type": "string"
+          }
+        }
+      },
+      "PerfilResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "clienteId": {
+                    "type": "string"
+                  },
+                  "perfilTipo": {
+                    "type": "string"
+                  },
+                  "ativo": {
+                    "type": "boolean"
+                  },
+                  "bloqueado": {
+                    "type": "boolean"
+                  },
+                  "limiteComercial": {
+                    "type": "number"
+                  },
+                  "saldoAberto": {
+                    "type": "number"
+                  },
+                  "observacoes": {
+                    "type": "string"
+                  },
+                  "dataAtivacao": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "dataInativacao": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "dataBloqueio": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "dataDesbloqueio": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PerfilListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PerfilResponse"
+                }
+              },
+              "metadata": {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "LimiteResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "limiteComercial": {
+                    "type": "number"
+                  },
+                  "saldoAberto": {
+                    "type": "number"
+                  },
+                  "limiteDisponivel": {
+                    "type": "number"
+                  },
+                  "percentualUtilizado": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CriarConsignacaoRequest": {
+        "type": "object",
+        "required": ["clienteId", "perfilComercialId", "documento", "usuarioId"],
+        "properties": {
+          "clienteId": {
+            "type": "string"
+          },
+          "perfilComercialId": {
+            "type": "string"
+          },
+          "documento": {
+            "type": "object"
+          },
+          "observacao": {
+            "type": "string"
+          },
+          "dataAbertura": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dataEntregaPrevista": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "usuarioId": {
+            "type": "string"
+          }
+        }
+      },
+      "ConsignacaoResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "clienteId": {
+                    "type": "string"
+                  },
+                  "perfilComercialId": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "documento": {
+                    "type": "object"
+                  },
+                  "observacao": {
+                    "type": "string"
+                  },
+                  "usuarioAberturaId": {
+                    "type": "string"
+                  },
+                  "dataAbertura": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "dataEntrega": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "dataEntregaPrevista": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "dataFechamento": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ConsignacaoListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ConsignacaoResponse"
+                }
+              },
+              "metadata": {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "DashboardResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "cards": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "titulo": {
+                          "type": "string"
+                        },
+                        "valor": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "kpis": {
+                    "type": "object"
+                  },
+                  "totais": {
+                    "type": "object"
+                  },
+                  "alertas": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "SituacaoClienteResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/StandardResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "clienteId": {
+                    "type": "string"
+                  },
+                  "situacao": {
+                    "type": "string"
+                  },
+                  "score": {
+                    "type": "number"
+                  },
+                  "nivelRisco": {
+                    "type": "string"
+                  },
+                  "saldoEmAberto": {
+                    "type": "number"
+                  },
+                  "limiteDisponivel": {
+                    "type": "number"
+                  },
+                  "alertas": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "recomendacoes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

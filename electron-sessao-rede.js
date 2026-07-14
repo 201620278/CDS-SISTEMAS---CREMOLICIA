@@ -8,7 +8,7 @@ function definirSessaoClienteRemoto(config) {
 
   sessaoClienteRemoto = {
     ipServidor: String(config.ipServidor).trim(),
-    porta: Number(config.porta) > 0 ? Number(config.porta) : 3001
+    porta: Number(config.porta) > 0 ? Number(config.porta) : 3002
   };
 }
 

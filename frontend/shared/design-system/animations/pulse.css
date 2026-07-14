@@ -1,0 +1,58 @@
+/**
+ * CDS Design System — Pulse animations
+ * Sprint UX/UI 2.0.1 — opacity / transform
+ */
+
+@keyframes cds-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes cds-pulse-opacity {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes cds-pulse-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cds-anim-pulse {
+  animation: cds-pulse var(--duration-slow) var(--easing-in-out) infinite;
+  transform: translateZ(0);
+  will-change: transform, opacity;
+}
+
+.cds-anim-pulse-opacity {
+  animation: cds-pulse-opacity var(--duration-slow) var(--easing-in-out) infinite;
+}
+
+.cds-anim-spin {
+  animation: cds-pulse-spin var(--duration-normal) var(--easing-linear) infinite;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cds-anim-pulse,
+  .cds-anim-pulse-opacity,
+  .cds-anim-spin {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

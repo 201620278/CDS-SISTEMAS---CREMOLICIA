@@ -1,0 +1,745 @@
+/**
+ * ConsignacaoController — Camada HTTP do domínio Consignação.
+ *
+ * Sprint 2.5: API REST — implementação completa dos endpoints.
+ *
+ * @module motores/motor-comercial/controllers/ConsignacaoController
+ */
+
+const { obterContainer } = require('../index');
+const {
+  CriarConsignacaoRequest,
+  EditarConsignacaoRequest,
+  AdicionarItemRequest,
+  AlterarQuantidadeItemRequest,
+  RegistrarEntregaRequest,
+  RegistrarEmissaoTermoEntregaRequest,
+  AbrirPrestacaoRequest,
+  RegistrarDevolucaoRequest,
+  TransferenciaRequest,
+  RegistrarVendaRequest,
+  RegistrarPerdaRequest,
+  RegistrarCortesiaRequest,
+  RegistrarPagamentoRequest,
+  ConsignacaoResponse,
+  ItemConsignacaoResponse
+} = require('../http/dto');
+const ResultHttpMapper = require('../../../shared/http/mappers/ResultHttpMapper');
+const StandardResponse = require('../../../shared/http/responses/StandardResponse');
+
+function responderValidacao(res, req, validation, mensagemPadrao = 'Dados inválidos') {
+  const erros = validation?.errors || [];
+  const primeiro = erros[0];
+  const mensagem = typeof primeiro === 'string'
+    ? primeiro
+    : (primeiro?.message || mensagemPadrao);
+  const detalhes = {
+    fields: erros.map((item) => (
+      typeof item === 'string'
+        ? { field: null, message: item }
+        : item
+    ))
+  };
+  const response = StandardResponse.validationError(mensagem, detalhes);
+  const enriched = StandardResponse.enrich(response, req);
+  return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+}
+
+class ConsignacaoController {
+  /** @returns {import('../infrastructure/di/ComercialDependencyContainer')} */
+  get _container() {
+    return obterContainer();
+  }
+
+  /**
+   * GET /consignacoes
+   * Lista todas as consignações.
+   */
+  async listar(req, res, next) {
+    try {
+      const { clienteId, perfilComercialId, status } = req.query;
+
+      const consignacaoRepository = this._container.consignacaoRepository;
+      const consignacoes = await consignacaoRepository.listar({
+        clienteId,
+        perfilComercialId,
+        status
+      });
+
+      const response = StandardResponse.success(
+        consignacoes.map(c => ConsignacaoResponse.toJSON(c)),
+        { total: consignacoes.length }
+      );
+
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /consignacoes/:id
+   * Consulta uma consignação por ID (inclui itens — necessário para recovery/UI).
+   */
+  async consultarPorId(req, res, next) {
+    try {
+      const { id } = req.params;
+
+      const consignacaoRepository = this._container.consignacaoRepository;
+      const consignacao = await consignacaoRepository.buscarPorId(id);
+
+      if (!consignacao) {
+        const response = StandardResponse.notFound('Consignação não encontrada');
+        const enriched = StandardResponse.enrich(response, req);
+        return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+      }
+
+      const itemRepository = this._container.consignacaoItemRepository;
+      let itens = [];
+      try {
+        itens = await itemRepository.listarPorConsignacao(id);
+      } catch (_e) {
+        itens = [];
+      }
+
+      const payload = {
+        ...ConsignacaoResponse.toJSON(consignacao),
+        itens: (itens || []).map((item) => ItemConsignacaoResponse.toJSON(item)).filter(Boolean)
+      };
+
+      const response = StandardResponse.success(payload);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /consignacoes/:id/itens
+   * Lista itens oficiais da consignação (UC-009).
+   */
+  async consultarItens(req, res, next) {
+    try {
+      const { id } = req.params;
+      const useCase = this._container.consultarItensConsignacaoUseCase;
+      const result = await useCase.executar({
+        consignacaoId: id,
+        produtoId: req.query.produtoId,
+        limite: req.query.limite ? Number(req.query.limite) : undefined,
+        offset: req.query.offset ? Number(req.query.offset) : undefined,
+        correlationId: req.correlationId
+      });
+
+      if (result && typeof result.isFail === 'function' && result.isFail()) {
+        const response = ResultHttpMapper.map(result);
+        const enriched = StandardResponse.enrich(response, req);
+        return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+      }
+
+      const data = result?.dados || result?.value || result?.data || {};
+      const itensBrutos = data.itens || [];
+      const itens = itensBrutos.map((item) => ItemConsignacaoResponse.toJSON(item)).filter(Boolean);
+      const response = StandardResponse.success({
+        consignacaoId: data.consignacaoId || id,
+        itens,
+        total: data.total ?? itens.length
+      });
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /consignacoes/proximo-documento
+   * Pré-visualiza o próximo número oficial CONS-AAAA-000001.
+   */
+  async proximoDocumento(req, res, next) {
+    try {
+      const { preverProximoDocumentoConsignacao } = require('../services/DocumentoConsignacaoSequenciador');
+      const ano = req.query.ano ? Number(req.query.ano) : new Date().getFullYear();
+      const documento = await preverProximoDocumentoConsignacao(
+        this._container.consignacaoRepository,
+        ano
+      );
+      const response = StandardResponse.success({ documento });
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes
+   * Cria uma nova consignação.
+   */
+  async criar(req, res, next) {
+    try {
+      const validation = CriarConsignacaoRequest.validate(req.body);
+      if (validation) {
+        const response = StandardResponse.validationError('Dados inválidos', validation.errors);
+        const enriched = StandardResponse.enrich(response, req);
+        return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+      }
+
+      const inputData = CriarConsignacaoRequest.fromJSON(req.body);
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.criarConsignacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.mapCreated(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /consignacoes/:id
+   * Edita uma consignação.
+   */
+  async editar(req, res, next) {
+    try {
+      const { id } = req.params;
+      const inputData = EditarConsignacaoRequest.fromJSON(req.body);
+      inputData.consignacaoId = id;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.editarConsignacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /consignacoes/:id
+   * Cancela uma consignação em rascunho.
+   */
+  async cancelar(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { usuarioId } = req.body;
+
+      const inputData = {
+        consignacaoId: id,
+        usuarioId,
+        correlationId: req.correlationId
+      };
+
+      const useCase = this._container.cancelarConsignacaoRascunhoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/itens
+   * Adiciona um item à consignação.
+   */
+  async adicionarItem(req, res, next) {
+    try {
+      const { id } = req.params;
+      const validation = AdicionarItemRequest.validate(req.body);
+      if (validation) {
+        return responderValidacao(res, req, validation);
+      }
+
+      const inputData = AdicionarItemRequest.fromJSON(req.body);
+      inputData.consignacaoId = id;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.adicionarItemConsignacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /consignacoes/:id/itens/:item
+   * Altera a quantidade de um item.
+   */
+  async alterarQuantidadeItem(req, res, next) {
+    try {
+      const { id, item } = req.params;
+      const validation = AlterarQuantidadeItemRequest.validate(req.body);
+      if (validation) {
+        return responderValidacao(res, req, validation);
+      }
+
+      const inputData = AlterarQuantidadeItemRequest.fromJSON(req.body);
+      inputData.consignacaoId = id;
+      inputData.itemId = item;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.alterarQuantidadeItemUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * DELETE /consignacoes/:id/itens/:item
+   * Remove um item da consignação.
+   */
+  async removerItem(req, res, next) {
+    try {
+      const { id, item } = req.params;
+      const { usuarioId } = req.body;
+
+      const inputData = {
+        consignacaoId: id,
+        itemId: item,
+        usuarioId,
+        correlationId: req.correlationId
+      };
+
+      const useCase = this._container.removerItemConsignacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/entrega
+   * Registra a entrega de uma consignação.
+   */
+  async registrarEntrega(req, res, next) {
+    try {
+      const { id } = req.params;
+      const inputData = RegistrarEntregaRequest.fromJSON(req.body);
+      inputData.consignacaoId = id;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.registrarEntregaConsignacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/termo-entrega
+   * Registra emissão/reimpressão do Termo de Entrega.
+   */
+  async registrarEmissaoTermoEntrega(req, res, next) {
+    try {
+      const { id } = req.params;
+      const inputData = RegistrarEmissaoTermoEntregaRequest.fromJSON(req.body);
+      inputData.consignacaoId = id;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.registrarEmissaoTermoEntregaUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/devolucao
+   * Registra a devolução de uma consignação.
+   */
+  async registrarDevolucao(req, res, next) {
+    try {
+      const { id } = req.params;
+      const inputData = RegistrarDevolucaoRequest.fromJSON(req.body);
+      const validation = RegistrarDevolucaoRequest.validate(inputData);
+      if (validation) {
+        return responderValidacao(res, req, validation);
+      }
+
+      inputData.consignacaoId = id;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.registrarDevolucaoAntesPrestacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/transferencia
+   * Transfere itens entre consignações.
+   */
+  async transferir(req, res, next) {
+    try {
+      const { id } = req.params;
+      const validation = TransferenciaRequest.validate(req.body);
+      if (validation) {
+        return responderValidacao(res, req, validation);
+      }
+
+      const inputData = TransferenciaRequest.fromJSON(req.body);
+      inputData.consignacaoOrigemId = id;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.transferirItensEntreConsignacoesUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/prestacao/abrir
+   * Abre uma prestação de conta.
+   */
+  async abrirPrestacao(req, res, next) {
+    try {
+      const { id } = req.params;
+      const payload = { ...req.body, consignacaoId: id };
+      const validation = AbrirPrestacaoRequest.validate(payload);
+      if (validation) {
+        return responderValidacao(res, req, validation, "Campo 'consignacaoId' é obrigatório.");
+      }
+
+      const inputData = AbrirPrestacaoRequest.fromJSON(req.body, id);
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.abrirPrestacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/prestacao/venda
+   * Registra uma venda na prestação.
+   */
+  async registrarVenda(req, res, next) {
+    try {
+      const { id } = req.params;
+      const validation = RegistrarVendaRequest.validate(req.body);
+      if (validation) {
+        return responderValidacao(res, req, validation);
+      }
+
+      const inputData = RegistrarVendaRequest.fromJSON(req.body);
+      inputData.consignacaoId = id;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.registrarVendaPrestacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/prestacao/perda
+   * Registra uma perda na prestação.
+   */
+  async registrarPerda(req, res, next) {
+    try {
+      const { id } = req.params;
+      const validation = RegistrarPerdaRequest.validate(req.body);
+      if (validation) {
+        return responderValidacao(res, req, validation);
+      }
+
+      const inputData = RegistrarPerdaRequest.fromJSON(req.body);
+      inputData.consignacaoId = id;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.registrarPerdaUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/prestacao/cortesia
+   * Registra uma cortesia na prestação.
+   */
+  async registrarCortesia(req, res, next) {
+    try {
+      const { id } = req.params;
+      const validation = RegistrarCortesiaRequest.validate(req.body);
+      if (validation) {
+        return responderValidacao(res, req, validation);
+      }
+
+      const inputData = RegistrarCortesiaRequest.fromJSON(req.body);
+      inputData.consignacaoId = id;
+      inputData.correlationId = req.correlationId;
+
+      const useCase = this._container.registrarCortesiaUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/prestacao/pagamento
+   * Registra um pagamento na prestação.
+   */
+  async registrarPagamento(req, res, next) {
+    try {
+      const { id } = req.params;
+
+      console.log('\n==========================');
+      console.log('REGISTRAR PAGAMENTO');
+      console.log('==========================');
+      console.log('Consignação:', id);
+      console.log('Payload recebido:', JSON.stringify(req.body, null, 2));
+      console.log('==========================\n');
+
+      const validation = RegistrarPagamentoRequest.validate(req.body);
+      if (validation) {
+        console.log('[REGISTRAR PAGAMENTO] Rejeição DTO/validação:', JSON.stringify(validation));
+        const response = {
+          success: false,
+          code: 'VALIDATION_ERROR',
+          message: "Campo 'valor' é obrigatório ou inválido.",
+          detail: 'Falha em RegistrarPagamentoRequest.validate',
+          rule: 'DTO_VALOR_OBRIGATORIO',
+          payload: {
+            body: req.body,
+            validation,
+            arquivo: 'ConsignacaoDTO.js',
+            linha: 'RegistrarPagamentoRequest.validate'
+          },
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: "Campo 'valor' é obrigatório ou inválido.",
+            details: validation
+          }
+        };
+        const enriched = StandardResponse.enrich(response, req);
+        return res.status(400).json(enriched);
+      }
+
+      const inputData = RegistrarPagamentoRequest.fromJSON(req.body);
+      inputData.consignacaoId = Number(id);
+      inputData.correlationId = req.correlationId;
+
+      console.log('[REGISTRAR PAGAMENTO] DTO:', JSON.stringify(inputData, null, 2));
+
+      const useCase = this._container.registrarPagamentoPrestacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/prestacao/fechar
+   * Fecha uma prestação de conta.
+   */
+  async fecharPrestacao(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { usuarioId } = req.body;
+
+      const inputData = {
+        consignacaoId: id,
+        usuarioId,
+        correlationId: req.correlationId
+      };
+
+      const useCase = this._container.fecharPrestacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /consignacoes/:id/prestacao/resumo-final
+   * STAB-06 — Resumo oficial (Integridade Comercial) sem persistir.
+   */
+  async resumoFinalPrestacao(req, res, next) {
+    try {
+      const { id } = req.params;
+      const useCase = this._container.finalizarPrestacaoComVendaOficialUseCase;
+      const result = await useCase.executar({
+        consignacaoId: id,
+        apenasResumo: true,
+        emitirFiscal: req.query.emitirFiscal !== 'false',
+        correlationId: req.correlationId
+      });
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/prestacao/finalizar-venda-oficial
+   * STAB-06 — Gera venda oficial (criarVenda) + encerra prestação.
+   */
+  async finalizarVendaOficial(req, res, next) {
+    try {
+      const { id } = req.params;
+      const body = req.body || {};
+      const useCase = this._container.finalizarPrestacaoComVendaOficialUseCase;
+      const result = await useCase.executar({
+        consignacaoId: id,
+        usuarioId: body.usuarioId,
+        emitirFiscal: body.emitirFiscal === true,
+        fechar: body.fechar !== false,
+        correlationId: req.correlationId,
+        motivo: body.motivo
+      });
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/prestacao/emitir-nfce
+   * STAB-06.3 — Venda oficial (se necessário) + emitirPorVendaId. Não encerra.
+   */
+  async emitirNfcePrestacao(req, res, next) {
+    try {
+      const { id } = req.params;
+      const body = req.body || {};
+      const useCase = this._container.emitirNfcePrestacaoUseCase;
+      const result = await useCase.executar({
+        consignacaoId: id,
+        usuarioId: body.usuarioId,
+        correlationId: req.correlationId
+      });
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /vendas/:vendaId/pos-nfce-autorizada
+   * STAB-06.3+ — após NFC-e no Módulo Fiscal: sincroniza faturamento e encerra Prestação.
+   */
+  async posNfceAutorizada(req, res, next) {
+    try {
+      const vendaId = req.params.vendaId;
+      const body = req.body || {};
+      const useCase = this._container.posNfcePrestacaoUseCase;
+      const result = await useCase.executar({
+        vendaId,
+        usuarioId: body.usuarioId ?? req.user?.id,
+        fechar: body.fechar !== false,
+        correlationId: req.correlationId,
+        motivo: body.motivo
+      });
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /consignacoes/:id/prestacao/reabrir
+   * Reabre uma prestação de conta.
+   */
+  async reabrirPrestacao(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { usuarioId, motivo, liberacaoGerencial, documento } = req.body;
+
+      const inputData = {
+        consignacaoId: id,
+        usuarioId,
+        motivo,
+        liberacaoGerencial,
+        documento,
+        correlationId: req.correlationId
+      };
+
+      const useCase = this._container.reabrirPrestacaoUseCase;
+      const result = await useCase.executar(inputData);
+
+      const response = ResultHttpMapper.map(result);
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+module.exports = ConsignacaoController;

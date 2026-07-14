@@ -11,7 +11,7 @@ const DEFAULT = {
   tipoImplantacao: 'ERP_SEM_FISCAL',
   modoOperacao: 'LOCAL',
   ipServidor: '',
-  porta: 3001,
+  porta: 3002,
   modo_confirmacao_fiscal: 'TEF'
 };
 

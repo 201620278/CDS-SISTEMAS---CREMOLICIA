@@ -1,0 +1,68 @@
+/**
+ * CDS Design System — Tables
+ * Sprint UX/UI 2.0.1
+ */
+
+.cds-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface);
+}
+
+.cds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-family-primary);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.cds-table th,
+.cds-table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: var(--border-width-thin) solid var(--color-border);
+}
+
+.cds-table th {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  background-color: var(--color-surface-muted);
+  white-space: nowrap;
+}
+
+.cds-table tbody tr {
+  transition: background-color var(--duration-fast) var(--easing-out);
+}
+
+.cds-table tbody tr:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.cds-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.cds-table--striped tbody tr:nth-child(even) {
+  background-color: var(--color-surface-muted);
+}
+
+.cds-table--compact th,
+.cds-table--compact td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.cds-table__empty {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.cds-table__actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}

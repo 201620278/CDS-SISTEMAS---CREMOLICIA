@@ -1,0 +1,28 @@
+/**
+ * CDS Design System — Tokens de Espaçamento
+ * Sprint UX/UI 2.0.1 — Fundação Visual Cremolícia
+ */
+
+:root {
+  --spacing-0: 0;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-xxl: 48px;
+  --spacing-xxxl: 64px;
+
+  /* Aliases semânticos de layout */
+  --spacing-page: var(--spacing-lg);
+  --spacing-section: var(--spacing-xl);
+  --spacing-card: var(--spacing-md);
+  --spacing-stack: var(--spacing-sm);
+  --spacing-inline: var(--spacing-sm);
+  --spacing-gap: var(--spacing-md);
+
+  /* Grid */
+  --grid-columns: 12;
+  --grid-gutter: var(--spacing-lg);
+  --grid-max-width: 1400px;
+}

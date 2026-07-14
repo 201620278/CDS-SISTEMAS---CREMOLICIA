@@ -1,0 +1,125 @@
+/**
+ * CDS Design System — Modals
+ * Sprint UX/UI 2.0.1
+ */
+
+.cds-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  background-color: var(--color-overlay);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-normal) var(--easing-out);
+}
+
+.cds-modal-backdrop.is-open,
+.cds-modal-backdrop.cds-modal-backdrop--open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.cds-modal {
+  position: relative;
+  z-index: var(--z-modal);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 520px;
+  max-height: min(90vh, 720px);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2xl);
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
+  transition: opacity var(--duration-normal) var(--easing-out),
+    transform var(--duration-normal) var(--easing-out);
+}
+
+.cds-modal-backdrop.is-open .cds-modal,
+.cds-modal-backdrop.cds-modal-backdrop--open .cds-modal {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+.cds-modal--sm {
+  max-width: 400px;
+}
+
+.cds-modal--lg {
+  max-width: 720px;
+}
+
+.cds-modal--xl {
+  max-width: 960px;
+}
+
+.cds-modal--full {
+  max-width: calc(100vw - var(--spacing-xl));
+  max-height: calc(100vh - var(--spacing-xl));
+}
+
+.cds-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  border-bottom: var(--border-width-thin) solid var(--color-border);
+}
+
+.cds-modal__title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.cds-modal__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-out),
+    color var(--duration-fast) var(--easing-out);
+}
+
+.cds-modal__close:hover {
+  background-color: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.cds-modal__body {
+  flex: 1;
+  overflow: auto;
+  padding: var(--spacing-lg);
+}
+
+.cds-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: var(--border-width-thin) solid var(--color-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cds-modal-backdrop,
+  .cds-modal {
+    transition: none;
+  }
+}

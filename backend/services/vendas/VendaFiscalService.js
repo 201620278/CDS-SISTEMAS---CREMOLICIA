@@ -139,6 +139,12 @@ async function emitirFiscalSeSolicitado(vendaId, emitirFiscal, venda) {
 }
 
 async function responderVendaComFiscal(res, payload) {
+  const t0 = Date.now();
+  const mark = (label) => {
+    console.log(`[STAB06-AUDIT] [${Date.now() - t0}ms] responderVendaComFiscal: ${label}`);
+  };
+  mark(`entrou emitirFiscal=${!!payload.emitirFiscal} valorFiscal=${payload.valorFiscal}`);
+
   const { resolverStatusPagamentoVenda } = require('./VendaPagamentoService');
   const valorFiscal = Number(payload.valorFiscal || 0);
   const valorNaoFiscal = Number(payload.valorNaoFiscal || 0);
@@ -160,6 +166,7 @@ async function responderVendaComFiscal(res, payload) {
   };
 
   if (!payload.emitirFiscal) {
+    mark('skip fiscal — res.json imediato');
     return res.json({
       ...respostaBase,
       fiscal: null
@@ -167,6 +174,7 @@ async function responderVendaComFiscal(res, payload) {
   }
 
   if (Number(payload.valorFiscal || 0) <= 0) {
+    mark('sem valor fiscal — res.json imediato');
     return res.json({
       ...respostaBase,
       fiscal: null
@@ -174,6 +182,7 @@ async function responderVendaComFiscal(res, payload) {
   }
 
   if (statusPagamento !== 'quitada') {
+    mark('aguardando_pagamento — res.json sem emitir');
     return res.json({
       ...respostaBase,
       fiscal: {
@@ -185,7 +194,9 @@ async function responderVendaComFiscal(res, payload) {
   }
 
   try {
+    mark('ANTES await emitirPorVendaId — ponto crítico (SOAP SEFAZ até 90s)');
     const fiscal = await emitirPorVendaId(payload.vendaId);
+    mark(`DEPOIS emitirPorVendaId status=${fiscal?.status || fiscal?.success}`);
 
     if (fiscal?.status === 'sem_itens_fiscais') {
       return res.json({
@@ -219,12 +230,14 @@ async function responderVendaComFiscal(res, payload) {
       });
     }
     
+    mark('res.json após NFC-e');
     res.json({
       ...respostaBase,
       fiscal
     });
   } catch (error) {
     console.error('Erro ao emitir NFC-e:', error);
+    mark(`erro emitirPorVendaId: ${error.message}`);
     
     // Reverter pagamentos TEF autorizados
     if (transacoesTefAutorizadas.length > 0) {

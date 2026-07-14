@@ -1,319 +1,354 @@
-<div class="dashboard-page mt-2">
+<div class="dashboard-executivo mt-2">
   <style>
-    .card-dashboard {
-      border: none;
-      border-radius: 12px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-      transition: 0.2s;
+    .dashboard-executivo {
+      --dash-primary: #0d47a1;
+      --dash-primary-soft: #e3f2fd;
+      --dash-success: #1b5e20;
+      --dash-warning: #e65100;
+      --dash-muted: #6c757d;
+      --dash-border: rgba(15, 23, 42, 0.08);
+      --dash-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+      --dash-radius: 14px;
     }
 
-    .card-dashboard:hover {
-      transform: translateY(-2px);
+    .dashboard-executivo__header {
+      margin-bottom: 1rem;
     }
 
-    .valor-card {
+    .dashboard-executivo__title {
       font-size: 1.5rem;
-      font-weight: bold;
+      font-weight: 700;
+      color: #1f2937;
+      margin-bottom: 0.35rem;
     }
 
-    .valor-card.valor-grande {
-      font-size: 1.75rem;
-    }
-
-    .titulo-card {
-      color: #666;
-      font-size: 13px;
-      margin-bottom: 4px;
-    }
-
-    .dashboard-secao-titulo {
+    .dashboard-executivo__resumo {
+      color: var(--dash-muted);
       font-size: 0.95rem;
+      line-height: 1.55;
+      max-width: 920px;
+    }
+
+    .dashboard-executivo__filtros {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .dashboard-executivo__secao {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #64748b;
+      margin: 1.25rem 0 0.65rem;
+    }
+
+    .dash-card {
+      background: #fff;
+      border: 1px solid var(--dash-border);
+      border-radius: var(--dash-radius);
+      box-shadow: var(--dash-shadow);
+      height: 100%;
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .dash-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    }
+
+    .dash-card__body {
+      padding: 1rem 1.1rem;
+    }
+
+    .dash-card__label {
+      font-size: 0.78rem;
       font-weight: 600;
-      color: #495057;
-      margin: 1rem 0 0.75rem;
+      color: var(--dash-muted);
+      margin-bottom: 0.35rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .card-dashboard.card-hoje {
-      border-left: 4px solid #0d6efd;
+    .dash-card__value {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #111827;
+      line-height: 1.15;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .card-dashboard.card-receber {
-      border-left: 4px solid #198754;
+    .dash-card--hero {
+      border-top: 4px solid var(--dash-primary);
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
     }
 
-    .card-dashboard.card-pagar {
-      border-left: 4px solid #dc3545;
+    .dash-card--hero-primary .dash-card__value {
+      font-size: 2rem;
+      color: var(--dash-primary);
     }
 
-    .card-dashboard.card-lucro {
-      border-left: 4px solid #fd7e14;
+    .dash-card--hero .dash-card__value {
+      font-size: 1.65rem;
+    }
+
+    .dash-card--operacional .dash-card__value {
+      font-size: 1.2rem;
+    }
+
+    .dash-card--placeholder .dash-card__value {
+      color: #94a3b8;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .dash-card__empty {
+      font-size: 0.95rem;
+      color: var(--dash-muted);
+      font-weight: 500;
+    }
+
+    .dash-panel {
+      background: #fff;
+      border: 1px solid var(--dash-border);
+      border-radius: var(--dash-radius);
+      box-shadow: var(--dash-shadow);
+      height: 100%;
+    }
+
+    .dash-panel__header {
+      padding: 1rem 1.15rem 0.5rem;
+      border-bottom: 1px solid rgba(15, 23, 42, 0.05);
+    }
+
+    .dash-panel__title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #1f2937;
+      margin: 0;
+    }
+
+    .dash-panel__body {
+      padding: 0.85rem 1.15rem 1rem;
+    }
+
+    .dash-panel__body--chart {
+      padding: 0.75rem 1rem 1rem;
+      min-height: 340px;
+    }
+
+    .dash-list-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.55rem 0;
+      border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+      font-size: 0.88rem;
+    }
+
+    .dash-list-row:last-child {
+      border-bottom: none;
+    }
+
+    .dash-empty-state {
+      color: var(--dash-muted);
+      font-size: 0.9rem;
+      padding: 1.25rem 0.5rem;
+      text-align: center;
+    }
+
+    .dash-table-wrap {
+      overflow-x: auto;
+    }
+
+    .dash-table {
+      width: 100%;
+      margin: 0;
+      font-size: 0.86rem;
+    }
+
+    .dash-table th {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+      font-weight: 700;
+      border-bottom-width: 1px;
+      white-space: nowrap;
+    }
+
+    .dash-table td {
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    .dash-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: #eef2ff;
+      color: #3730a3;
+    }
+
+    .dash-badge--success { background: #dcfce7; color: #166534; }
+    .dash-badge--warning { background: #fef3c7; color: #92400e; }
+    .dash-badge--danger { background: #fee2e2; color: #991b1b; }
+
+    @media (max-width: 768px) {
+      .dash-card--hero-primary .dash-card__value {
+        font-size: 1.55rem;
+      }
+
+      .dash-card--hero .dash-card__value {
+        font-size: 1.35rem;
+      }
+
+      .dash-panel__body--chart {
+        min-height: 280px;
+      }
     }
   </style>
 
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 dashboard-executivo__header">
     <div>
-      <h3 class="mb-0">Dashboard</h3>
+      <h3 class="dashboard-executivo__title mb-1">Dashboard Executivo</h3>
+      <p class="dashboard-executivo__resumo mb-1" id="dashboardResumoExecutivo">Carregando resumo...</p>
       <small class="text-muted" id="dashboardPeriodoLabel">Carregando período...</small>
     </div>
 
-    <div class="d-flex align-items-center gap-2 flex-wrap">
+    <div class="dashboard-executivo__filtros">
       <select id="dashboardFiltroRapido" class="form-select form-select-sm" style="width: 150px;">
         <option value="7">Últimos 7 dias</option>
         <option value="hoje">Hoje</option>
         <option value="30">Últimos 30 dias</option>
         <option value="personalizado">Personalizado</option>
       </select>
-
       <input type="date" id="dashboardDataInicio" class="form-control form-control-sm" style="width: 145px;">
       <input type="date" id="dashboardDataFim" class="form-control form-control-sm" style="width: 145px;">
-
-      <button class="btn btn-sm btn-primary" onclick="carregarDashboardComFiltro()">
-        Filtrar
-      </button>
+      <button class="btn btn-sm btn-primary" onclick="carregarDashboardComFiltro()">Filtrar</button>
     </div>
   </div>
 
-  <div class="dashboard-secao-titulo">Hoje</div>
-  <div class="row">
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard card-hoje">
-        <div class="card-body py-3">
-          <div class="titulo-card">Vendas de hoje</div>
-          <div class="valor-card" id="dashboardVendasHoje">0</div>
+  <div class="dashboard-executivo__secao">Indicadores principais</div>
+  <div class="row g-3">
+    <div class="col-12 col-lg-4">
+      <div class="dash-card dash-card--hero dash-card--hero-primary">
+        <div class="dash-card__body">
+          <div class="dash-card__label">Faturamento de Hoje</div>
+          <div class="dash-card__value" id="dashboardFaturamentoHoje">—</div>
         </div>
       </div>
     </div>
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard card-hoje">
-        <div class="card-body py-3">
-          <div class="titulo-card">Faturamento de hoje</div>
-          <div class="valor-card" id="dashboardFaturamentoHoje">R$ 0,00</div>
+    <div class="col-6 col-lg-2">
+      <div class="dash-card dash-card--hero">
+        <div class="dash-card__body">
+          <div class="dash-card__label">Vendas de Hoje</div>
+          <div class="dash-card__value" id="dashboardVendasHoje">—</div>
         </div>
       </div>
     </div>
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard card-lucro">
-        <div class="card-body py-3">
-          <div class="titulo-card">Lucro estimado (hoje)</div>
-          <div class="valor-card" id="dashboardLucroHoje">R$ 0,00</div>
+    <div class="col-6 col-lg-3">
+      <div class="dash-card dash-card--hero">
+        <div class="dash-card__body">
+          <div class="dash-card__label">Lucro Estimado</div>
+          <div class="dash-card__value" id="dashboardLucroHoje">—</div>
         </div>
       </div>
     </div>
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard card-hoje">
-        <div class="card-body py-3">
-          <div class="titulo-card">Ticket médio (hoje)</div>
-          <div class="valor-card" id="dashboardTicketHoje">R$ 0,00</div>
+    <div class="col-12 col-lg-3">
+      <div class="dash-card dash-card--hero">
+        <div class="dash-card__body">
+          <div class="dash-card__label">Ticket Médio</div>
+          <div class="dash-card__value" id="dashboardTicketHoje">—</div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="dashboard-secao-titulo">Equipamentos</div>
-  <div class="row">
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard" style="border-left: 4px solid #6f42c1; cursor: pointer;" onclick="loadPage('equipamentos')">
-        <div class="card-body py-3">
-          <div class="titulo-card">Equipamentos cadastrados</div>
-          <div class="valor-card" id="dashboardEquipamentosQtd">0</div>
+  <div class="dashboard-executivo__secao">Indicadores operacionais</div>
+  <div class="row g-3">
+    <div class="col-6 col-xl-3">
+      <div class="dash-card dash-card--operacional dash-card--placeholder">
+        <div class="dash-card__body">
+          <div class="dash-card__label">Clientes Atendidos</div>
+          <div class="dash-card__value" id="dashboardClientesAtendidos">Em breve</div>
         </div>
       </div>
     </div>
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard" style="border-left: 4px solid #198754;">
-        <div class="card-body py-3">
-          <div class="titulo-card">Online</div>
-          <div class="valor-card text-success" id="dashboardEquipamentosOnline">0</div>
+    <div class="col-6 col-xl-3">
+      <div class="dash-card dash-card--operacional">
+        <div class="dash-card__body">
+          <div class="dash-card__label">Produtos Vendidos</div>
+          <div class="dash-card__value" id="dashboardProdutos">—</div>
         </div>
       </div>
     </div>
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard" style="border-left: 4px solid #dc3545;">
-        <div class="card-body py-3">
-          <div class="titulo-card">Offline</div>
-          <div class="valor-card text-danger" id="dashboardEquipamentosOffline">0</div>
+    <div class="col-6 col-xl-3">
+      <div class="dash-card dash-card--operacional">
+        <div class="dash-card__body">
+          <div class="dash-card__label">Pedidos em Aberto</div>
+          <div class="dash-card__value" id="dashboardPedidosAbertos">—</div>
         </div>
       </div>
     </div>
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard" style="border-left: 4px solid #fd7e14;">
-        <div class="card-body py-3">
-          <div class="titulo-card">Pendentes</div>
-          <div class="valor-card" id="dashboardEquipamentosFila">0</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="dashboard-secao-titulo">Sincronizações</div>
-  <div class="row">
-    <div class="col-6 col-md-4 mb-3">
-      <div class="card card-dashboard" style="border-left: 4px solid #fd7e14;">
-        <div class="card-body py-3">
-          <div class="titulo-card">Pendentes</div>
-          <div class="valor-card" id="dashboardSyncPendentes">0</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-4 mb-3">
-      <div class="card card-dashboard" style="border-left: 4px solid #198754;">
-        <div class="card-body py-3">
-          <div class="titulo-card">Concluídas</div>
-          <div class="valor-card text-success" id="dashboardSyncConcluidas">0</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-4 mb-3">
-      <div class="card card-dashboard" style="border-left: 4px solid #dc3545;">
-        <div class="card-body py-3">
-          <div class="titulo-card">Erros</div>
-          <div class="valor-card text-danger" id="dashboardSyncErros">0</div>
+    <div class="col-6 col-xl-3">
+      <div class="dash-card dash-card--operacional dash-card--placeholder">
+        <div class="dash-card__body">
+          <div class="dash-card__label">Itens em Estoque</div>
+          <div class="dash-card__value" id="dashboardItensEstoque">Em breve</div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="dashboard-secao-titulo">Período selecionado</div>
-  <div class="row">
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard">
-        <div class="card-body py-3">
-          <div class="titulo-card">Faturamento</div>
-          <div class="valor-card valor-grande" id="dashboardFaturamento">R$ 0,00</div>
-        </div>
-      </div>
+  <div class="dashboard-executivo__secao">Evolução das vendas</div>
+  <div class="dash-panel mb-3 cds-chart-panel">
+    <div class="dash-panel__header">
+      <h5 class="dash-panel__title cds-chart-panel__title">Faturamento e volume no período</h5>
     </div>
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard">
-        <div class="card-body py-3">
-          <div class="titulo-card">Vendas</div>
-          <div class="valor-card valor-grande" id="dashboardVendas">0</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard">
-        <div class="card-body py-3">
-          <div class="titulo-card">Ticket médio</div>
-          <div class="valor-card valor-grande" id="dashboardTicket">R$ 0,00</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3 mb-3">
-      <div class="card card-dashboard">
-        <div class="card-body py-3">
-          <div class="titulo-card">Produtos vendidos</div>
-          <div class="valor-card valor-grande" id="dashboardProdutos">0</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-12 col-md-4 mb-3">
-      <div class="card card-dashboard card-lucro">
-        <div class="card-body py-3">
-          <div class="titulo-card">Lucro estimado (período)</div>
-          <div class="valor-card valor-grande" id="dashboardLucro">R$ 0,00</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-4 mb-3">
-      <div class="card card-dashboard">
-        <div class="card-body py-3">
-          <div class="titulo-card">Ações (últimos 7 dias)</div>
-          <div class="valor-card" id="dashboardAuditoriaUltimos7">0</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-4 mb-3">
-      <div class="card card-dashboard card-receber">
-        <div class="card-body py-3">
-          <div class="titulo-card">Contas a receber</div>
-          <div class="valor-card" id="dashboardContasReceber">R$ 0,00</div>
-          <small class="text-muted" id="dashboardContasReceberQtd">0 pendência(s)</small>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-4 mb-3">
-      <div class="card card-dashboard card-pagar">
-        <div class="card-body py-3">
-          <div class="titulo-card">Contas a pagar</div>
-          <div class="valor-card" id="dashboardContasPagar">R$ 0,00</div>
-          <small class="text-muted" id="dashboardContasPagarQtd">0 pendência(s)</small>
-        </div>
+    <div class="dash-panel__body dash-panel__body--chart">
+      <div id="dashboardGraficoKpis"></div>
+      <div id="dashboardGraficoEmpty" class="dash-empty-state d-none">Ainda não existem dados suficientes para gerar este gráfico.</div>
+      <div class="cds-chart-panel__canvas">
+        <canvas id="dashboardGraficoEvolucao"></canvas>
       </div>
     </div>
   </div>
 
-  <div class="row">
-    <div class="col-md-6 mb-3">
-      <div class="card card-dashboard h-100">
-        <div class="card-body">
-          <h5 class="mb-3">🔥 Produtos mais vendidos</h5>
-          <div id="dashboardMaisVendidos">Carregando...</div>
+  <div class="dashboard-executivo__secao">Produtos</div>
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <div class="dash-panel">
+        <div class="dash-panel__header">
+          <h5 class="dash-panel__title">Produtos mais vendidos</h5>
         </div>
+        <div class="dash-panel__body" id="dashboardMaisVendidos">Carregando...</div>
       </div>
     </div>
-    <div class="col-md-6 mb-3">
-      <div class="card card-dashboard h-100">
-        <div class="card-body">
-          <h5 class="mb-3">📉 Produtos menos vendidos</h5>
-          <div id="dashboardMenosVendidos">Carregando...</div>
+    <div class="col-lg-6">
+      <div class="dash-panel">
+        <div class="dash-panel__header">
+          <h5 class="dash-panel__title">Produtos com menor giro</h5>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="col-md-6 mb-3">
-      <div class="card card-dashboard h-100">
-        <div class="card-body">
-          <h5 class="mb-3">📦 Estoque baixo</h5>
-          <div id="dashboardEstoqueBaixo">Carregando...</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-6 mb-3">
-      <div class="card card-dashboard h-100">
-        <div class="card-body">
-          <h5 class="mb-3">💳 Vendas por forma de pagamento</h5>
-          <div id="dashboardFormasPagamento">Carregando...</div>
-        </div>
+        <div class="dash-panel__body" id="dashboardMenosVendidos">Carregando...</div>
       </div>
     </div>
   </div>
 
-  <div class="row mt-3">
-    <div class="col-md-6 mb-3">
-      <div class="card card-dashboard">
-        <div class="card-body">
-          <h5>⚠️ Produtos Próximos do Vencimento</h5>
-          <div id="dashboardProdutosProximoVencimento"></div>
-        </div>
-      </div>
+  <div class="dashboard-executivo__secao">Últimas vendas</div>
+  <div class="dash-panel">
+    <div class="dash-panel__header">
+      <h5 class="dash-panel__title">Movimentações recentes</h5>
     </div>
-
-    <div class="col-md-6 mb-3">
-      <div class="card card-dashboard">
-        <div class="card-body">
-          <h5>🚫 Produtos Vencidos</h5>
-          <div id="dashboardProdutosVencidos"></div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-6 mb-3">
-      <div class="card card-dashboard">
-        <div class="card-body">
-          <h5>🔒 Backups Recentes</h5>
-          <div id="dashboardBackupsRecentes">Carregando...</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-6 mb-3">
-      <div class="card card-dashboard">
-        <div class="card-body">
-          <h5>⚠️ Alertas de Auditoria</h5>
-          <div id="dashboardAlerts">Carregando...</div>
-        </div>
-      </div>
+    <div class="dash-panel__body dash-table-wrap" id="dashboardUltimasVendas">
+      <div class="dash-empty-state">Carregando vendas...</div>
     </div>
   </div>
 </div>
