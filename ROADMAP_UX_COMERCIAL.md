@@ -1,6 +1,6 @@
 # ROADMAP UX COMERCIAL — Implantação gradual
 
-**Base:** `AUDITORIA_UX_MOTOR_COMERCIAL.md` · `PLANO_REESTRUTURACAO_UX.md` · `MOCKUPS_UX_COMERCIAL.md`  
+**Base:** `docs/archive/auditorias/ux/COMPILADO_UX.md` · `PLANO_REESTRUTURACAO_UX.md` · `MOCKUPS_UX_COMERCIAL.md`  
 **Constituição UX:** `.cds/adr/ADR-UX-001.md`  
 **Data:** 2026-07-13  
 
@@ -22,7 +22,14 @@ UX-15  Preparar limpo (absorvido em UX-20)
 UX-16  Central unificada
 UX-17  Consignações arquivo
 UX-18  Nav + léxico + SmartSearch
+
+STAB-06.6.1  Integridade itens
+STAB-06.6.2  SSOT financeiro Prestação
+STAB-06.6.3  Consolidação operacional
+STAB-06.6.4  Hardening RC1  ← Motor Comercial RC1 / CODE FREEZE (ADR-COMERCIAL-001)
 ```
+
+**Pós-RC1 (fora deste roadmap UX):** novas features do Motor Comercial só via RFC. Foco da plataforma → Motor Indústria, Motor Financeiro SSOT, Portal do Contador.
 
 ---
 

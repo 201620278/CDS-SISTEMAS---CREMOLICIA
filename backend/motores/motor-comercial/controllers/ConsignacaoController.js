@@ -276,6 +276,34 @@ class ConsignacaoController {
   }
 
   /**
+   * PATCH /consignacoes/:id/itens/:item/observacao
+   * Persiste observação da grade (STAB-06.6.1) — sem alterar quantidades/ledger.
+   */
+  async atualizarObservacaoItem(req, res, next) {
+    try {
+      const { id, item } = req.params;
+      const observacao = req.body?.observacao != null
+        ? String(req.body.observacao)
+        : '';
+
+      const itemRepository = this._container.consignacaoItemRepository;
+      const atual = await itemRepository.buscarPorId(item);
+      if (!atual || String(atual.consignacaoId) !== String(id)) {
+        const response = StandardResponse.notFound('Item não encontrado nesta consignação');
+        const enriched = StandardResponse.enrich(response, req);
+        return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+      }
+
+      const atualizado = await itemRepository.atualizar(atual.id, { observacao });
+      const response = StandardResponse.success(ItemConsignacaoResponse.toJSON(atualizado));
+      const enriched = StandardResponse.enrich(response, req);
+      return res.status(StandardResponse.getStatusCode(response)).json(enriched);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * PUT /consignacoes/:id/itens/:item
    * Altera a quantidade de um item.
    */

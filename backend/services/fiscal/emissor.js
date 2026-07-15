@@ -6,7 +6,7 @@ const { carregarCertificadoPfx } = require('./certificateService');
 const {
   buildNfceXml
 } = require('./xmlBuilder');
-const { gerarQRCodeNFCe } = require('./qrcode');
+const { gerarQRCodeNFCe, obterUrlChaveConsulta } = require('./qrcode');
 const { assinarNFe } = require('./signer');
 const { montarLote, enviarLote } = require('./soapClient');
 const { compactarXml, extrairChaveEProtocoloAutorizados } = require('./utils');
@@ -308,6 +308,25 @@ async function emitirPorVendaId(vendaId) {
     };
   }
 
+  if (!String(config.idCSC || '').trim() || !String(config.tokenCSC || '').trim()) {
+    const notaId = await salvarNota({
+      venda_id: vendaId,
+      numero,
+      serie: config.serie,
+      chave_acesso: '',
+      ambiente: config.ambiente,
+      status: 'configuracao_pendente',
+      xml_retorno: 'ID CSC e Token CSC são obrigatórios para emitir NFC-e (evitar rejeição 462/459).'
+    });
+
+    return {
+      success: false,
+      notaId,
+      status: 'configuracao_pendente',
+      message: 'Configure o ID CSC e o Token CSC nas configurações fiscais antes de emitir.'
+    };
+  }
+
   const errosFiscais =
     validarItensFiscal(
       itensFiscal,
@@ -359,16 +378,38 @@ async function emitirPorVendaId(vendaId) {
       `DigestValue: ${assinatura.digestValue || ''}`
     ].join('\n'));
 
+    console.log(
+      `[FISCAL QR] Fonte CSC: configuracoes.fiscal_id_csc / fiscal_token_csc ` +
+        `(sem cache; lido via getFiscalConfig). ` +
+        `emitCNPJ=${String(config.cnpj || '').replace(/\D/g, '')} ` +
+        `idCSC="${config.idCSC}" token="${config.tokenCSC}" ` +
+        `tokenLen=${String(config.tokenCSC || '').length} tpAmb=${config.ambiente}`
+    );
+
     qrCodeUrl = gerarQRCodeNFCe({
       chave: xmlBase.chave,
       ambiente: config.ambiente,
       idCSC: config.idCSC,
-      CSC: config.tokenCSC
+      CSC: config.tokenCSC,
+      consultaUrl: config.urls?.consultaQr || ''
     });
 
-    const urlConsulta = Number(config.ambiente) === 1
-      ? 'https://nfce.sefaz.ce.gov.br/pages/consultaNota.jsf'
-      : 'https://nfceh.sefaz.ce.gov.br/pages/consultaNota.jsf';
+    salvarDebug(
+      '02a-qrcode-sha1-audit.txt',
+      [
+        `emitCNPJ=${String(config.cnpj || '').replace(/\D/g, '')}`,
+        `chave=${xmlBase.chave}`,
+        `tpAmb=${config.ambiente}`,
+        `idCSC=${config.idCSC}`,
+        `CSC=${config.tokenCSC}`,
+        `qrCodeUrl=${qrCodeUrl}`
+      ].join('\n')
+    );
+
+    const urlConsulta = obterUrlChaveConsulta(
+      config.ambiente,
+      config.urls?.consultaChave || config.urls?.consultaQr || ''
+    );
 
     const infNFeSupl = `<infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>${urlConsulta}</urlChave></infNFeSupl>`;
 

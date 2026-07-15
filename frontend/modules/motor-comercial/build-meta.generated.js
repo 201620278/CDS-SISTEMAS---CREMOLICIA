@@ -5,7 +5,7 @@ module.exports = {
   "module": "motor-comercial",
   "version": "1.0.3",
   "sprint": "UX-10",
-  "buildTime": "2026-07-14 01:33:17",
-  "hash": "28401BE47069CD313C190E5BBA8EFBBDC189861BE127AD3B361327A0ADD94153",
+  "buildTime": "2026-07-15 00:07:12",
+  "hash": "E287E89CC6B884E381C5D206E3B733F3C332EBCB19BBD99B56B9D175524A91C0",
   "ambiente": "development"
 };

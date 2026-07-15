@@ -14,29 +14,20 @@ function isElectronRuntime() {
 }
 
 /**
- * Instrumentação temporária — divergência Electron × Browser.
+ * Instrumentação opcional — ativar: window.__CDS_ELECTRON_FLOW_DEBUG__ = true
  * @param {Object} payload
  */
 function logElectronFlow(payload = {}) {
+  if (typeof window === 'undefined' || window.__CDS_ELECTRON_FLOW_DEBUG__ !== true) {
+    return;
+  }
   const line = {
     isElectron: isElectronRuntime(),
     ts: new Date().toISOString(),
     ...payload
   };
-  console.log('========================');
-  console.log('ELECTRON FLOW');
-  console.log('========================');
-  console.log('Tela atual:', line.tela || '-');
-  console.log('Evento:', line.evento || '-');
-  console.log('Origem:', line.origem || '-');
-  console.log('Destino:', line.destino || '-');
-  console.log('Recovery:', line.recovery || '-');
-  console.log('Router:', line.router || '-');
-  console.log('Checkpoint:', line.checkpoint || '-');
-  console.log('Cliente:', line.cliente || '-');
-  console.log('Operação:', line.operacao || '-');
-  console.log('Payload:', line);
-  console.log('========================');
+  // eslint-disable-next-line no-console
+  console.debug('[CDS_ELECTRON_FLOW_DEBUG]', line);
 }
 
 function markCentralArrivalGuard(origem = '') {

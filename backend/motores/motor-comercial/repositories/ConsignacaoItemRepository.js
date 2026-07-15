@@ -21,8 +21,20 @@ const MAPA_CAMPOS = {
   quantidadeCortesia: 'quantidade_cortesia',
   precoUnitario: 'preco_unitario',
   subtotalEntregue: 'subtotal_entregue',
-  subtotalAcertado: 'subtotal_acertado'
+  subtotalAcertado: 'subtotal_acertado',
+  observacao: 'observacao'
 };
+
+/** SELECT com enriquecimento de cadastro (STAB-06.6.1 — somente leitura). */
+const SELECT_ITEM_ENRIQUECIDO = `
+  SELECT
+    ci.*,
+    p.nome AS produto_nome,
+    p.codigo AS produto_codigo,
+    COALESCE(p.unidade, 'UN') AS produto_unidade
+  FROM ${TABELAS.CONSIGNACOES_ITENS} ci
+  LEFT JOIN produtos p ON p.id = ci.produto_id
+`;
 
 class ConsignacaoItemRepository extends BaseRepository {
   static TABELA = TABELAS.CONSIGNACOES_ITENS;
@@ -31,11 +43,20 @@ class ConsignacaoItemRepository extends BaseRepository {
     return this._executar(async () => {
       const sql = this._obterSql();
       await sql.whenReady();
-      const row = await sql.get(
-        `SELECT * FROM ${ConsignacaoItemRepository.TABELA} WHERE id = ?`,
-        [id]
-      );
-      return mapConsignacaoItemFromRow(row);
+      try {
+        const row = await sql.get(
+          `${SELECT_ITEM_ENRIQUECIDO} WHERE ci.id = ?`,
+          [id]
+        );
+        return mapConsignacaoItemFromRow(row);
+      } catch (_erroJoin) {
+        // Ambientes sem tabela produtos (testes isolados) — mantém contrato sem nome
+        const row = await sql.get(
+          `SELECT * FROM ${ConsignacaoItemRepository.TABELA} WHERE id = ?`,
+          [id]
+        );
+        return mapConsignacaoItemFromRow(row);
+      }
     });
   }
 
@@ -44,21 +65,32 @@ class ConsignacaoItemRepository extends BaseRepository {
       const sql = this._obterSql();
       await sql.whenReady();
 
-      let query = `SELECT * FROM ${ConsignacaoItemRepository.TABELA} WHERE consignacao_id = ?`;
       const params = [consignacaoId];
-
+      let filtroProduto = '';
       if (filtros.produtoId != null) {
-        query += ' AND produto_id = ?';
+        filtroProduto = ' AND ci.produto_id = ?';
         params.push(filtros.produtoId);
       }
 
-      query += ' ORDER BY id ASC';
       const pag = this._paginacao(filtros);
-      query += pag.sql;
       params.push(...pag.params);
 
-      const rows = await sql.all(query, params);
-      return rows.map(mapConsignacaoItemFromRow);
+      try {
+        const query = `${SELECT_ITEM_ENRIQUECIDO} WHERE ci.consignacao_id = ?${filtroProduto} ORDER BY ci.id ASC${pag.sql}`;
+        const rows = await sql.all(query, params);
+        return rows.map(mapConsignacaoItemFromRow);
+      } catch (_erroJoin) {
+        const paramsFallback = [consignacaoId];
+        let query = `SELECT * FROM ${ConsignacaoItemRepository.TABELA} WHERE consignacao_id = ?`;
+        if (filtros.produtoId != null) {
+          query += ' AND produto_id = ?';
+          paramsFallback.push(filtros.produtoId);
+        }
+        query += ` ORDER BY id ASC${pag.sql}`;
+        paramsFallback.push(...pag.params);
+        const rows = await sql.all(query, paramsFallback);
+        return rows.map(mapConsignacaoItemFromRow);
+      }
     });
   }
 

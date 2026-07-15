@@ -31,13 +31,15 @@ class Button {
       loading = false,
       fullWidth = false,
       icon = null,
-      onClick = null
+      onClick = null,
+      title = null
     } = options;
 
     const button = document.createElement('button');
     button.className = this._getClasses(variant, size, disabled, loading, fullWidth);
     button.disabled = disabled || loading;
     button.setAttribute('type', 'button');
+    if (title) button.title = title;
 
     if (icon) {
       const iconSpan = document.createElement('span');

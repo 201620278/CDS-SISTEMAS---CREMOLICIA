@@ -5,13 +5,12 @@
 describe('PrestacaoContas — Continuar vs blur da grade', () => {
   test('mousedown do Continuar define _skipNextBlur antes do blur', () => {
     const page = {
-      currentStep: 1,
+      currentStep: 0, // STAB-07.1 STEP_RETORNOS
       salvandoConferencia: false,
       loading: { operation: false },
       encerrado: false,
       _skipNextBlur: false,
       _capturarRascunhoRetornos: jest.fn(),
-      _sincronizarPagamentoDoDom: jest.fn(),
       _goNext: jest.fn(),
       _canEncerrar: () => true,
       _encerrarAtendimento: jest.fn(),
@@ -19,14 +18,14 @@ describe('PrestacaoContas — Continuar vs blur da grade', () => {
       _handleCancel: jest.fn()
     };
 
-    // Reproduz o binding do footer (trecho crítico)
+    // Reproduz o binding do footer (trecho crítico STAB-07.1)
     const continuarBtn = document.createElement('button');
     continuarBtn.type = 'button';
     continuarBtn.addEventListener('click', () => page._goNext());
     continuarBtn.addEventListener('mousedown', (event) => {
       if (event.button !== 0) return;
       page._skipNextBlur = true;
-      if (page.currentStep === 1) page._capturarRascunhoRetornos();
+      page._capturarRascunhoRetornos();
     });
 
     continuarBtn.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));

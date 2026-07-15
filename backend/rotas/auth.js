@@ -225,6 +225,45 @@ router.post('/login', (req, res) => {
     });
   }
 
+  const {
+    compararSenhaBootstrap,
+    hashPareceBcrypt,
+    repararHashSuperAdminSeNecessario
+  } = require('../lib/DatabaseBootstrapService');
+
+  const tentarLogin = (usuario) => {
+    if (!usuario) {
+      return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+    }
+
+    if (hashPareceBcrypt(usuario.password_hash)) {
+      let senhaValida = false;
+      try {
+        senhaValida = compararSenhaBootstrap(password, usuario.password_hash);
+      } catch (compareErr) {
+        return responderErroInternoLogin(res, 'ERRO BCRYPT', compareErr);
+      }
+
+      if (senhaValida) {
+        return finalizarLoginComUsuario(req, res, usuario);
+      }
+      return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+    }
+
+    // Hash ausente/inválido: repara SUPER_ADMIN na primeira instalação se senha padrão.
+    repararHashSuperAdminSeNecessario(db, username, password)
+      .then(({ reparado, usuario: usuarioReparado }) => {
+        if (reparado && usuarioReparado) {
+          return finalizarLoginComUsuario(req, res, usuarioReparado);
+        }
+        console.error('[LOGIN] Usuário sem password_hash válido:', usuario.username);
+        return res.status(500).json({
+          error: 'Conta de usuário incompleta. Contate o administrador.'
+        });
+      })
+      .catch((repairErr) => responderErroInternoLogin(res, 'ERRO REPARO HASH', repairErr));
+  };
+
   dbGetComRetry(
     `SELECT * FROM usuarios WHERE username = ? AND COALESCE(ativo, 1) = 1`,
     [username],
@@ -233,30 +272,7 @@ router.post('/login', (req, res) => {
       if (err) {
         return responderErroInternoLogin(res, 'ERRO SQL LOGIN', err);
       }
-
-      if (!usuario) {
-        return res.status(401).json({ error: 'Usuário ou senha inválidos' });
-      }
-
-      if (!usuario.password_hash) {
-        console.error('[LOGIN] Usuário sem password_hash:', usuario.username);
-        return res.status(500).json({
-          error: 'Conta de usuário incompleta. Contate o administrador.'
-        });
-      }
-
-      let senhaValida = false;
-      try {
-        senhaValida = bcrypt.compareSync(password, usuario.password_hash);
-      } catch (compareErr) {
-        return responderErroInternoLogin(res, 'ERRO BCRYPT', compareErr);
-      }
-
-      if (!senhaValida) {
-        return res.status(401).json({ error: 'Usuário ou senha inválidos' });
-      }
-
-      finalizarLoginComUsuario(req, res, usuario);
+      tentarLogin(usuario);
     }
   );
 });

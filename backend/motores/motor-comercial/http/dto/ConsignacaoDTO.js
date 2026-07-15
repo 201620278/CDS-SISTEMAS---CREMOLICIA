@@ -495,33 +495,65 @@ class ConsignacaoResponse {
 
 class ItemConsignacaoResponse {
   /**
-   * Converte item de consignação para DTO de resposta.
+   * Converte item de consignação para DTO de resposta (STAB-06.6.1).
+   * Transporta identificação comercial + quantidades + status operacional.
    * @param {Object} item
    * @returns {Object}
    */
   static toJSON(item) {
     if (!item) return null;
 
-    const quantidade = Number(
-      item.quantidade != null
-        ? item.quantidade
-        : (item.quantidadeEntregue ?? 0)
+    const quantidadeEntregue = Number(
+      item.quantidadeEntregue != null
+        ? item.quantidadeEntregue
+        : (item.quantidade ?? 0)
     );
-    const precoUnitario = Number(item.precoUnitario ?? item.preco ?? 0);
+    const quantidade = Number(
+      item.quantidade != null ? item.quantidade : quantidadeEntregue
+    );
+    const quantidadeVendida = Number(item.quantidadeVendida ?? 0);
+    const quantidadeDevolvida = Number(item.quantidadeDevolvida ?? 0);
+    const quantidadePerdida = Number(item.quantidadePerdida ?? item.quantidadePerda ?? 0);
+    const quantidadeCortesia = Number(item.quantidadeCortesia ?? 0);
+    const saldo = Number.isFinite(Number(item.saldo))
+      ? Math.max(0, Number(item.saldo))
+      : Math.max(
+        0,
+        quantidadeEntregue - quantidadeVendida - quantidadeDevolvida
+          - quantidadePerdida - quantidadeCortesia
+      );
+    const valorUnitario = Number(item.valorUnitario ?? item.precoUnitario ?? item.preco ?? 0);
+    const produtoNomeRaw = item.produtoNome ?? item.produto ?? null;
+    const produtoNome = produtoNomeRaw != null && String(produtoNomeRaw).trim() !== ''
+      ? String(produtoNomeRaw).trim()
+      : null;
+    const status = saldo > 0 ? 'PENDENTE' : 'LIQUIDADO';
 
     return {
       id: item.id,
+      itemId: item.id,
       consignacaoId: item.consignacaoId,
       produtoId: item.produtoId,
+      produtoNome,
+      codigo: item.codigo ?? null,
+      unidade: item.unidade ?? 'UN',
+      valorUnitario,
+      precoUnitario: valorUnitario,
+      preco: valorUnitario,
       quantidade: Number.isFinite(quantidade) ? quantidade : 0,
-      quantidadeEntregue: Number(item.quantidadeEntregue || quantidade || 0),
-      quantidadeVendida: item.quantidadeVendida || 0,
-      quantidadePerdida: item.quantidadePerdida || 0,
-      quantidadeCortesia: item.quantidadeCortesia || 0,
-      quantidadeDevolvida: item.quantidadeDevolvida || 0,
-      precoUnitario,
-      preco: precoUnitario,
-      precoTotal: item.precoTotal != null ? Number(item.precoTotal) : (quantidade * precoUnitario),
+      quantidadeEntregue,
+      quantidadeVendida,
+      quantidadeDevolvida,
+      quantidadePerdida,
+      quantidadePerda: quantidadePerdida,
+      quantidadeCortesia,
+      saldo,
+      status,
+      statusLabel: status === 'LIQUIDADO' ? 'Liquidado' : 'Pendente',
+      observacao: item.observacao ?? null,
+      precoTotal: item.precoTotal != null
+        ? Number(item.precoTotal)
+        : (quantidadeEntregue * valorUnitario),
       createdAt: item.createdAt,
       updatedAt: item.updatedAt
     };

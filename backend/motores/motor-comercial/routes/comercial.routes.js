@@ -102,6 +102,7 @@ router.delete('/consignacoes/:id', rota('consignacao', 'cancelar'));
 router.post('/consignacoes/:id/itens', rota('consignacao', 'adicionarItem'));
 router.get('/consignacoes/:id/itens', rota('consignacao', 'consultarItens'));
 router.put('/consignacoes/:id/itens/:item', rota('consignacao', 'alterarQuantidadeItem'));
+router.patch('/consignacoes/:id/itens/:item/observacao', rota('consignacao', 'atualizarObservacaoItem'));
 router.delete('/consignacoes/:id/itens/:item', rota('consignacao', 'removerItem'));
 
 router.post('/consignacoes/:id/entrega', rota('consignacao', 'registrarEntrega'));

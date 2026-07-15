@@ -7,31 +7,57 @@
 const Button = require('../../components/base/Button');
 const Input = require('../../components/form/Input');
 const Select = require('../../components/form/Select');
-const Textarea = require('../../components/form/Textarea');
+const Badge = require('../../components/base/Badge');
 const Loading = require('../../components/base/Loading');
 const EmptyState = require('../../components/base/EmptyState');
 const Alert = require('../../components/base/Alert');
+const Modal = require('../../components/navigation/Modal');
+const Pagination = require('../../components/data/Pagination');
 const {
   buildPainelLateral,
   buildResumoEntrega,
   buildCentralEncerramento,
-  buildValidacoesFinais,
   buildResumoFinalOficial,
   consignacaoElegivelParaPrestacao,
   CAMPOS_RETORNO_ORDEM,
   calcularSaldoItem,
+  getOperadorNomeLocal,
   formatCurrency,
-  formatDate
+  formatDate,
+  formatDateTime
 } = require('./fecharConsignacaoMappers');
+const {
+  labelSituacaoFinanceira,
+  assertMesmoFinanceiro
+} = require('./prestacaoFinanceiroSnapshot');
+const {
+  buildPainelFechamentoOperacional,
+  auditarIntegridadeNoResumo,
+  auditarCadeiaFiscal,
+  labelSituacaoFinanceiraOficial,
+  MENSAGENS
+} = require('./prestacaoOperacionalConsolidacao');
+const {
+  safeText,
+  criarAlertaErroOperacional,
+  auditarFinalRC1
+} = require('./prestacaoHardening');
+
+function _financeiroFromState(state) {
+  return state?.snapshot?.financeiro
+    || state?.painel?.financeiro
+    || null;
+}
 
 class FecharConsignacaoView {
   static renderMomento(momento, state, ctx) {
     switch (momento) {
-      case 'conferir': return FecharConsignacaoView.renderConferir(state, ctx);
       case 'retornos': return FecharConsignacaoView.renderRetornos(state, ctx);
-      case 'pagamento': return FecharConsignacaoView.renderPagamento(state, ctx);
       case 'conferencia': return FecharConsignacaoView.renderConferenciaFinal(state, ctx);
       case 'encerramento': return FecharConsignacaoView.renderEncerramento(state, ctx);
+      // legado (STAB-07.1 removeu steps)
+      case 'conferir': return FecharConsignacaoView.renderRetornos(state, ctx);
+      case 'pagamento': return FecharConsignacaoView.renderConferenciaFinal(state, ctx);
       default: return document.createElement('div');
     }
   }
@@ -94,12 +120,20 @@ class FecharConsignacaoView {
           + Number(item.perdido || 0) + Number(item.cortesia || 0);
         const row = document.createElement('div');
         row.className = 'cds-fechar-consignacao__grade-row';
-        row.innerHTML = `
-          <span><strong>${item.produto}</strong></span>
-          <span>${item.enviado ?? item.quantidade ?? 0}</span>
-          <span>${registrado}</span>
-          <span>${item.saldo ?? 0}</span>
-        `;
+        const nome = document.createElement('span');
+        const strong = document.createElement('strong');
+        strong.textContent = safeText(item.produtoNome || item.produto, '⚠ Produto não localizado');
+        nome.appendChild(strong);
+        row.appendChild(nome);
+        const entregue = document.createElement('span');
+        entregue.textContent = String(item.enviado ?? item.quantidadeEntregue ?? item.quantidade ?? 0);
+        row.appendChild(entregue);
+        const reg = document.createElement('span');
+        reg.textContent = String(registrado);
+        row.appendChild(reg);
+        const pend = document.createElement('span');
+        pend.textContent = String(item.saldo ?? 0);
+        row.appendChild(pend);
         lista.appendChild(row);
       });
     }
@@ -110,14 +144,15 @@ class FecharConsignacaoView {
 
   static renderRetornos(state, ctx) {
     const wrap = document.createElement('div');
-    wrap.className = 'cds-fechar-consignacao__momento cds-fechar-consignacao__momento--grade-fill';
+    wrap.className = 'cds-fechar-consignacao__momento cds-fechar-consignacao__momento--grade-fill cds-retornos-estacao';
 
-    const title = document.createElement('h2');
-    title.className = 'cds-fechar-consignacao__titulo cds-fechar-consignacao__titulo--compact';
-    title.textContent = 'Registrar Retornos';
-    wrap.appendChild(title);
-
-    wrap.appendChild(FecharConsignacaoView._renderAtalhos());
+    const header = document.createElement('header');
+    header.className = 'cds-retornos-page-header';
+    header.innerHTML = `
+      <h2 class="cds-fechar-consignacao__titulo cds-op-titulo">Registrar Retornos</h2>
+      <p class="cds-retornos-page-header__hint">Informe as quantidades devolvidas, perdas ou dadas como cortesia.</p>
+    `;
+    wrap.appendChild(header);
 
     const alerta = document.createElement('div');
     alerta.id = 'fechar-conferencia-alerta';
@@ -129,6 +164,13 @@ class FecharConsignacaoView {
     wrap.appendChild(alerta);
 
     const itens = state.resumoPrestacao?.itens || [];
+    const painel = state.painel || buildPainelLateral(
+      state.resumoPrestacao,
+      itens,
+      _financeiroFromState(state)
+    );
+    wrap.appendChild(FecharConsignacaoView._buildResumoRapido(painel));
+
     if (!itens.length) {
       wrap.appendChild(EmptyState.create({
         title: 'Sem produtos',
@@ -137,46 +179,275 @@ class FecharConsignacaoView {
       return wrap;
     }
 
-    const gradeHost = document.createElement('div');
-    gradeHost.className = 'cds-fechar-consignacao__grade-scroll';
+    const layout = document.createElement('div');
+    layout.className = 'cds-retornos-layout';
 
-    const table = document.createElement('div');
-    table.className = 'cds-fechar-consignacao__grade-retornos';
-    table.id = 'fechar-retornos-grade';
+    const main = document.createElement('div');
+    main.className = 'cds-retornos-main';
+    main.appendChild(FecharConsignacaoView._buildGradeProdutosPanel(state, ctx, itens));
+    layout.appendChild(main);
 
-    const head = document.createElement('div');
-    head.className = 'cds-fechar-consignacao__grade-head cds-fechar-consignacao__grade-head--retornos';
-    head.innerHTML = `
-      <span>Produto</span><span>Entregue</span><span>Devolvido</span><span>Vendido</span>
-      <span>Perda</span><span>Cortesia</span><span>Saldo</span><span>Obs.</span><span>Status</span>
-    `;
-    table.appendChild(head);
-
-    itens.forEach((item, index) => {
-      table.appendChild(FecharConsignacaoView._renderLinhaRetorno(item, index, state, ctx));
-    });
-
-    gradeHost.appendChild(table);
-    wrap.appendChild(gradeHost);
+    layout.appendChild(FecharConsignacaoView._buildSidebarRetornos(state, painel));
+    wrap.appendChild(layout);
     return wrap;
   }
 
+  static _defaultRetornosUi(stateUi = {}) {
+    const baseColunas = {
+      entregue: true,
+      vendido: true,
+      devolvido: true,
+      perdido: true,
+      cortesia: true,
+      saldo: true,
+      observacao: true,
+      status: true
+    };
+    return {
+      busca: '',
+      page: 1,
+      pageSize: 10,
+      filtro: 'TODOS',
+      colunaPreset: 'ALL',
+      ...stateUi,
+      colunas: { ...baseColunas, ...(stateUi.colunas || {}) }
+    };
+  }
+
+  static _filtrarItensRetornos(itens = [], ui = {}, state = {}) {
+    const cfg = FecharConsignacaoView._defaultRetornosUi(ui);
+    const q = String(cfg.busca || '').trim().toLowerCase();
+    return itens
+      .map((item, index) => ({ item, index }))
+      .filter(({ item, index }) => {
+        const nome = String(item.produtoNome || item.produto || '').toLowerCase();
+        if (q && !nome.includes(q)) return false;
+        const status = FecharConsignacaoView._statusOperacionalItem(item, index, state);
+        if (cfg.filtro === 'LIQUIDADO' && status.key !== 'liquidado') return false;
+        if (cfg.filtro === 'PENDENTE' && status.key !== 'pendente') return false;
+        if (cfg.filtro === 'INCONSISTENTE' && status.key !== 'inconsistente') return false;
+        return true;
+      });
+  }
+
+  static _statusOperacionalItem(item = {}, index = 0, state = {}) {
+    if (state.linhasComErro?.[index]) {
+      return { key: 'inconsistente', label: 'Inconsistente', variant: 'error' };
+    }
+    const saldo = Number(item.saldo ?? calcularSaldoItem(item));
+    if (item.status === 'LIQUIDADO' || saldo <= 0) {
+      return { key: 'liquidado', label: 'Liquidado', variant: 'success' };
+    }
+    return { key: 'pendente', label: 'Pendente', variant: 'warning' };
+  }
+
+  static _paginarItens(list = [], page = 1, pageSize = 10) {
+    const size = Math.max(1, Number(pageSize) || 10);
+    const total = list.length;
+    const totalPages = Math.max(1, Math.ceil(total / size) || 1);
+    const pageSafe = Math.min(Math.max(1, Number(page) || 1), totalPages);
+    const start = (pageSafe - 1) * size;
+    const pageItems = list.slice(start, start + size);
+    return {
+      pageItems,
+      total,
+      totalPages,
+      page: pageSafe,
+      pageSize: size,
+      from: total ? start + 1 : 0,
+      to: total ? Math.min(start + size, total) : 0
+    };
+  }
+
+  static _buildGradeProdutosPanel(state, ctx, itens) {
+    const ui = FecharConsignacaoView._defaultRetornosUi(state.retornosUi);
+    const panel = document.createElement('section');
+    panel.className = 'cds-op-card cds-retornos-grade-panel';
+
+    const scroll = document.createElement('div');
+    scroll.className = 'cds-fechar-consignacao__grade-scroll cds-retornos-grade-scroll cds-table-wrap';
+
+    const table = document.createElement('table');
+    table.className = 'cds-table cds-table--compact cds-retornos-table';
+    table.id = 'fechar-retornos-grade';
+
+    const filtered = FecharConsignacaoView._filtrarItensRetornos(itens, ui, state);
+    const pageData = FecharConsignacaoView._paginarItens(filtered, ui.page, ui.pageSize);
+
+    table.appendChild(FecharConsignacaoView._buildGradeHead(ui.colunas));
+    const tbody = document.createElement('tbody');
+    tbody.dataset.slot = 'retornos-tbody';
+    if (!pageData.pageItems.length) {
+      const empty = document.createElement('tr');
+      empty.innerHTML = '<td colspan="10" class="cds-table__empty">Nenhum produto encontrado.</td>';
+      tbody.appendChild(empty);
+    } else {
+      pageData.pageItems.forEach(({ item, index }) => {
+        tbody.appendChild(FecharConsignacaoView._renderLinhaRetorno(item, index, state, ctx));
+      });
+    }
+    table.appendChild(tbody);
+    scroll.appendChild(table);
+    panel.appendChild(scroll);
+
+    panel.appendChild(FecharConsignacaoView._buildGradeFooter(pageData, ui, ctx));
+    return panel;
+  }
+
+  static _buildGradeHead(colunas = {}) {
+    const thead = document.createElement('thead');
+    const tr = document.createElement('tr');
+    tr.className = 'cds-fechar-consignacao__grade-head cds-fechar-consignacao__grade-head--retornos';
+    const cols = [
+      { key: 'check', label: '', always: true },
+      { key: 'produto', label: 'Produto', always: true },
+      { key: 'entregue', label: 'Entregue' },
+      { key: 'devolvido', label: 'Devolvido' },
+      { key: 'vendido', label: 'Vendido' },
+      { key: 'perdido', label: 'Perda' },
+      { key: 'cortesia', label: 'Cortesia' },
+      { key: 'saldo', label: 'Saldo' },
+      { key: 'observacao', label: 'Observação' },
+      { key: 'status', label: 'Status' }
+    ];
+    cols.forEach((c) => {
+      if (!c.always && colunas[c.key] === false) return;
+      const th = document.createElement('th');
+      th.dataset.col = c.key;
+      th.textContent = c.label;
+      if (c.key === 'check') {
+        th.innerHTML = '<input type="checkbox" aria-label="Selecionar todos" disabled />';
+      }
+      tr.appendChild(th);
+    });
+    thead.appendChild(tr);
+    return thead;
+  }
+
+  static _buildGradeFooter(pageData, ui, ctx) {
+    const foot = document.createElement('div');
+    foot.className = 'cds-retornos-grade-footer';
+    foot.dataset.slot = 'retornos-pagination';
+
+    const info = document.createElement('span');
+    info.className = 'cds-retornos-grade-footer__info';
+    info.textContent = pageData.total
+      ? `Mostrando ${pageData.from} a ${pageData.to} de ${pageData.total} produtos`
+      : 'Mostrando 0 produtos';
+    foot.appendChild(info);
+
+    const sizeWrap = document.createElement('div');
+    sizeWrap.className = 'cds-retornos-grade-footer__size';
+    sizeWrap.innerHTML = '<span>Linhas por página</span>';
+    sizeWrap.appendChild(Select.create({
+      options: [
+        { value: '10', label: '10' },
+        { value: '20', label: '20' },
+        { value: '50', label: '50' },
+        { value: '100', label: '100' }
+      ],
+      value: String(ui.pageSize || 10),
+      onChange: (v) => ctx.onRetornosUiChange && ctx.onRetornosUiChange({
+        pageSize: Number(v) || 10,
+        page: 1
+      })
+    }));
+    foot.appendChild(sizeWrap);
+
+    foot.appendChild(Pagination.create({
+      currentPage: pageData.page,
+      totalPages: pageData.totalPages,
+      totalItems: pageData.total,
+      pageSize: pageData.pageSize,
+      onPageChange: (page) => ctx.onRetornosUiChange && ctx.onRetornosUiChange({ page })
+    }));
+
+    return foot;
+  }
+
+  /**
+   * Atualiza só o corpo/paginação da grade (busca/página) — sem remontar a estação.
+   */
+  static refreshRetornosGrade(root, state, ctx) {
+    const panel = root.querySelector('.cds-retornos-grade-panel');
+    if (!panel) return false;
+    const itens = state.resumoPrestacao?.itens || [];
+    const ui = FecharConsignacaoView._defaultRetornosUi(state.retornosUi);
+    const filtered = FecharConsignacaoView._filtrarItensRetornos(itens, ui, state);
+    const pageData = FecharConsignacaoView._paginarItens(filtered, ui.page, ui.pageSize);
+
+    const table = panel.querySelector('#fechar-retornos-grade');
+    if (table) {
+      const oldHead = table.querySelector('thead');
+      const newHead = FecharConsignacaoView._buildGradeHead(ui.colunas);
+      if (oldHead) oldHead.replaceWith(newHead);
+      else table.prepend(newHead);
+
+      const tbody = table.querySelector('[data-slot="retornos-tbody"]') || table.querySelector('tbody');
+      if (tbody) {
+        tbody.replaceChildren();
+        if (!pageData.pageItems.length) {
+          const empty = document.createElement('tr');
+          empty.innerHTML = '<td colspan="10" class="cds-table__empty">Nenhum produto encontrado.</td>';
+          tbody.appendChild(empty);
+        } else {
+          pageData.pageItems.forEach(({ item, index }) => {
+            tbody.appendChild(FecharConsignacaoView._renderLinhaRetorno(item, index, state, ctx));
+          });
+        }
+      }
+    }
+
+    const foot = panel.querySelector('[data-slot="retornos-pagination"]');
+    if (foot) foot.replaceWith(FecharConsignacaoView._buildGradeFooter(pageData, ui, ctx));
+    return true;
+  }
+
+  /** STAB-07.5 — linha da grade operacional (selector legado preservado). */
   static _renderLinhaRetorno(item, index, state, ctx) {
     const editing = state.editing?.rowIndex === index;
     const linhaErro = state.linhasComErro?.[index];
-    const row = document.createElement('div');
-    row.className = `cds-fechar-consignacao__grade-row cds-fechar-consignacao__grade-row--retornos${editing ? ' cds-fechar-consignacao__grade-row--editando' : ''}${linhaErro ? ' cds-fechar-consignacao__grade-row--erro' : ''}`;
+    const ui = FecharConsignacaoView._defaultRetornosUi(state.retornosUi);
+    const colunas = ui.colunas;
+
+    const row = document.createElement('tr');
+    row.className = [
+      'cds-fechar-consignacao__grade-row',
+      'cds-fechar-consignacao__grade-row--retornos',
+      editing ? 'cds-fechar-consignacao__grade-row--editando' : '',
+      linhaErro ? 'cds-fechar-consignacao__grade-row--erro' : '',
+      item.dirty ? 'cds-fechar-consignacao__grade-row--dirty' : ''
+    ].filter(Boolean).join(' ');
     row.dataset.rowIndex = String(index);
 
-    const prod = document.createElement('span');
-    prod.innerHTML = `<strong>${item.produto}</strong>`;
-    row.appendChild(prod);
+    const tdCheck = document.createElement('td');
+    tdCheck.dataset.col = 'check';
+    tdCheck.innerHTML = '<input type="checkbox" aria-label="Selecionar linha" disabled />';
+    row.appendChild(tdCheck);
 
-    const entregue = document.createElement('span');
-    entregue.textContent = String(item.enviado ?? 0);
-    row.appendChild(entregue);
+    const tdProd = document.createElement('td');
+    tdProd.dataset.col = 'produto';
+    tdProd.className = 'cds-retornos-table__produto';
+    const nomeProduto = safeText(item.produtoNome || item.produto, '⚠ Produto não localizado');
+    const strong = document.createElement('strong');
+    strong.textContent = nomeProduto;
+    if (nomeProduto.startsWith('⚠')) strong.className = 'cds-fechar-consignacao__produto--ausente';
+    tdProd.appendChild(strong);
+    row.appendChild(tdProd);
+
+    if (colunas.entregue !== false) {
+      const td = document.createElement('td');
+      td.dataset.col = 'entregue';
+      td.className = 'cds-retornos-table__num';
+      td.textContent = String(item.enviado ?? 0);
+      row.appendChild(td);
+    }
 
     ['devolvido', 'vendido', 'perdido', 'cortesia'].forEach((campo) => {
+      if (colunas[campo] === false) return;
+      const td = document.createElement('td');
+      td.dataset.col = campo;
+      td.className = 'cds-retornos-table__input-cell';
       const input = document.createElement('input');
       input.type = 'number';
       input.min = '0';
@@ -188,59 +459,181 @@ class FecharConsignacaoView {
       if (state.focus?.rowIndex === index && state.focus?.campo === campo) {
         input.dataset.autofocus = 'true';
       }
-
       const emitDraft = () => ctx.onItemDraft(index, campo, input.value);
       input.addEventListener('focus', () => ctx.onItemFocus(index, campo));
       input.addEventListener('input', emitDraft);
       input.addEventListener('change', emitDraft);
       input.addEventListener('keydown', (e) => ctx.onItemKeydown(e, index, campo, input));
       input.addEventListener('blur', () => ctx.onItemBlur(index, campo, input.value));
-      row.appendChild(input);
+      td.appendChild(input);
+      row.appendChild(td);
     });
 
-    const saldo = document.createElement('span');
-    saldo.className = 'cds-fechar-consignacao__saldo-cell';
-    saldo.dataset.saldoIndex = String(index);
-    saldo.textContent = String(item.saldo ?? calcularSaldoItem(item));
-    row.appendChild(saldo);
-
-    const obs = document.createElement('input');
-    obs.type = 'text';
-    obs.placeholder = 'Obs.';
-    obs.value = item.observacao || '';
-    obs.className = 'cds-fechar-consignacao__obs-input';
-    obs.dataset.campo = 'observacao';
-    if (state.focus?.rowIndex === index && state.focus?.campo === 'observacao') {
-      obs.dataset.autofocus = 'true';
+    if (colunas.saldo !== false) {
+      const td = document.createElement('td');
+      td.dataset.col = 'saldo';
+      td.className = 'cds-retornos-table__num';
+      const saldo = document.createElement('strong');
+      saldo.className = 'cds-fechar-consignacao__saldo-cell';
+      saldo.dataset.saldoIndex = String(index);
+      saldo.textContent = String(item.saldo ?? calcularSaldoItem(item));
+      td.appendChild(saldo);
+      row.appendChild(td);
     }
-    obs.addEventListener('focus', () => ctx.onItemFocus(index, 'observacao'));
-    obs.addEventListener('input', () => ctx.onItemDraft(index, 'observacao', obs.value));
-    obs.addEventListener('keydown', (e) => ctx.onItemKeydown(e, index, 'observacao', obs));
-    obs.addEventListener('blur', () => ctx.onItemObsChange(index, obs.value));
-    row.appendChild(obs);
 
-    const status = document.createElement('span');
-    status.className = 'cds-fechar-consignacao__linha-status';
-    status.dataset.statusRow = String(index);
+    if (colunas.observacao !== false) {
+      const td = document.createElement('td');
+      td.dataset.col = 'observacao';
+      td.className = 'cds-retornos-table__obs-cell';
+      const obs = document.createElement('input');
+      obs.type = 'text';
+      obs.placeholder = 'Opcional...';
+      obs.value = item.observacao || '';
+      obs.className = 'cds-fechar-consignacao__obs-input';
+      obs.dataset.campo = 'observacao';
+      if (state.focus?.rowIndex === index && state.focus?.campo === 'observacao') {
+        obs.dataset.autofocus = 'true';
+      }
+      obs.addEventListener('focus', () => ctx.onItemFocus(index, 'observacao'));
+      obs.addEventListener('input', () => ctx.onItemDraft(index, 'observacao', obs.value));
+      obs.addEventListener('keydown', (e) => ctx.onItemKeydown(e, index, 'observacao', obs));
+      obs.addEventListener('blur', () => ctx.onItemObsChange(index, obs.value));
+      td.appendChild(obs);
+      row.appendChild(td);
+    }
+
+    if (colunas.status !== false) {
+      const td = document.createElement('td');
+      td.dataset.col = 'status';
+      td.className = 'cds-retornos-table__status-cell';
+      const status = document.createElement('span');
+      status.className = 'cds-fechar-consignacao__linha-status';
+      status.dataset.statusRow = String(index);
+      FecharConsignacaoView._aplicarStatusLinha(status, item, index, state, ctx);
+      td.appendChild(status);
+      row.appendChild(td);
+    }
+
+    return row;
+  }
+
+  static _aplicarStatusLinha(statusEl, item, index, state, ctx) {
+    statusEl.replaceChildren();
     const lineKey = state.lineStatus?.[`${index}-active`] || state.lineStatus?.[`${index}-vendido`];
-    if (lineKey?.state) {
-      status.dataset.state = lineKey.state;
-      status.textContent = lineKey.message || FecharConsignacaoView._statusLabel(lineKey.state);
-    } else if (linhaErro?.message) {
-      status.dataset.state = 'error';
-      status.textContent = linhaErro.message;
+    const linhaErro = state.linhasComErro?.[index];
+
+    if (lineKey?.state === 'saving' || lineKey?.state === 'saved' || lineKey?.state === 'error') {
+      statusEl.dataset.state = lineKey.state;
+      statusEl.appendChild(Badge.create({
+        text: lineKey.message || FecharConsignacaoView._statusLabel(lineKey.state),
+        variant: lineKey.state === 'error' ? 'error' : lineKey.state === 'saved' ? 'success' : 'info',
+        size: 'sm'
+      }));
+    } else {
+      const status = FecharConsignacaoView._statusOperacionalItem(item, index, state);
+      statusEl.dataset.state = status.key;
+      statusEl.appendChild(Badge.create({
+        text: linhaErro?.message || status.label,
+        variant: status.variant,
+        size: 'sm'
+      }));
     }
-    if (linhaErro && ctx.onRetryLinha) {
+
+    if (linhaErro && ctx?.onRetryLinha) {
       const retry = document.createElement('button');
       retry.type = 'button';
       retry.className = 'cds-fechar-consignacao__retry-btn';
       retry.textContent = 'Tentar novamente';
       retry.addEventListener('click', () => ctx.onRetryLinha(index));
-      status.appendChild(retry);
+      statusEl.appendChild(retry);
     }
-    row.appendChild(status);
+  }
 
-    return row;
+  static _buildResumoRapido(painel = {}) {
+    const section = document.createElement('section');
+    section.className = 'cds-op-card cds-retornos-resumo';
+    section.id = 'fechar-retornos-resumo-rapido';
+    section.innerHTML = `
+      <h3 class="cds-op-card__titulo">Resumo Rápido</h3>
+      <div class="cds-retornos-resumo__grid">
+        <div><span>Vendidos</span><strong data-resumo="vendidos">${painel.produtosVendidos ?? 0}</strong></div>
+        <div><span>Devolvidos</span><strong data-resumo="devolvidos">${painel.produtosDevolvidos ?? 0}</strong></div>
+        <div><span>Perdas</span><strong data-resumo="perdas">${painel.perdas ?? 0}</strong></div>
+        <div><span>Saldo</span><strong data-resumo="saldo">${painel.pendentes ?? 0}</strong></div>
+      </div>
+    `;
+    return section;
+  }
+
+  static patchResumoRapido(host, painel = {}) {
+    if (!host) return;
+    const map = {
+      vendidos: painel.produtosVendidos ?? 0,
+      devolvidos: painel.produtosDevolvidos ?? 0,
+      perdas: painel.perdas ?? 0,
+      saldo: painel.pendentes ?? 0
+    };
+    Object.entries(map).forEach(([key, value]) => {
+      const el = host.querySelector(`[data-resumo="${key}"]`);
+      if (el) el.textContent = String(value);
+    });
+  }
+
+  static _situacaoSidebarTone(codigo = '') {
+    const key = String(codigo || '').toUpperCase();
+    if (key === 'QUITADA' || key === 'SEM_VENDA') return 'ok';
+    if (key === 'PARCIALMENTE_RECEBIDA') return 'warn';
+    return 'open';
+  }
+
+  static _buildSidebarRetornos(state, painel = {}) {
+    const fin = state.snapshot?.financeiro || painel.financeiro || {};
+    const situacaoLabel = labelSituacaoFinanceiraOficial(fin.situacaoFinanceira)
+      || labelSituacaoFinanceira(fin.situacaoFinanceira)
+      || '—';
+    const tone = FecharConsignacaoView._situacaoSidebarTone(fin.situacaoFinanceira);
+
+    const aside = document.createElement('aside');
+    aside.className = 'cds-op-card cds-retornos-sidebar cds-fechar-consignacao__painel';
+    aside.id = 'fechar-painel-lateral';
+    aside.innerHTML = `
+      <h3 class="cds-op-card__titulo">Resumo Financeiro</h3>
+      <div class="cds-retornos-sidebar__fin">
+        <div class="cds-retornos-sidebar__metric cds-retornos-sidebar__metric--venda">
+          <span>Valor da Venda</span>
+          <strong data-painel="valorVenda">${formatCurrency(fin.valorVenda)}</strong>
+        </div>
+        <div class="cds-retornos-sidebar__metric cds-retornos-sidebar__metric--recebido">
+          <span>Recebido</span>
+          <strong data-painel="valorRecebido">${formatCurrency(fin.valorRecebido)}</strong>
+        </div>
+        <div class="cds-retornos-sidebar__metric cds-retornos-sidebar__metric--saldo">
+          <span>Saldo em Aberto</span>
+          <strong data-painel="saldoEmAberto">${formatCurrency(fin.saldoEmAberto)}</strong>
+        </div>
+        <div class="cds-retornos-sidebar__metric cds-retornos-sidebar__metric--sit cds-retornos-sidebar__metric--${tone}">
+          <span>Situação Financeira</span>
+          <strong data-painel="situacaoFinanceira">${safeText(situacaoLabel)}</strong>
+        </div>
+      </div>
+      <h4 class="cds-retornos-sidebar__natureza-title">Resumo por natureza</h4>
+      <dl class="cds-retornos-sidebar__natureza">
+        <div><dt>Vendidos</dt><dd data-painel="vendidos" class="is-vendidos">${painel.produtosVendidos ?? 0}</dd></div>
+        <div><dt>Devolvidos</dt><dd data-painel="devolvidos" class="is-devolvidos">${painel.produtosDevolvidos ?? 0}</dd></div>
+        <div><dt>Perdas</dt><dd data-painel="perdas" class="is-perdas">${painel.perdas ?? 0}</dd></div>
+        <div><dt>Cortesias</dt><dd data-painel="cortesias" class="is-cortesias">${painel.cortesias ?? 0}</dd></div>
+        <div><dt>Saldo</dt><dd data-painel="pendentes" class="is-saldo">${painel.pendentes ?? 0}</dd></div>
+      </dl>
+    `;
+
+    const persist = document.createElement('div');
+    persist.id = 'fechar-persistencia-status';
+    persist.className = 'cds-fechar-consignacao__persistencia';
+    persist.dataset.status = state.persistenciaStatus || 'saved';
+    persist.textContent = state.persistenciaLabel
+      || (state.persistenciaStatus === 'pending' ? '● Alterações pendentes' : '✓ Alterações salvas');
+    aside.appendChild(persist);
+    return aside;
   }
 
   static _statusLabel(state) {
@@ -283,29 +676,44 @@ class FecharConsignacaoView {
     if (obs && document.activeElement !== obs) obs.value = item.observacao || '';
 
     const statusEl = rowEl.querySelector('[data-status-row]');
-    const statusInfo = state.lineStatus?.[`${index}-active`];
-    if (statusEl && statusInfo) {
-      statusEl.dataset.state = statusInfo.state || '';
-      statusEl.textContent = statusInfo.message || FecharConsignacaoView._statusLabel(statusInfo.state);
+    if (statusEl) {
+      FecharConsignacaoView._aplicarStatusLinha(statusEl, item, index, state, null);
     }
   }
 
   static patchPainelLateral(asideEl, painel, state = {}) {
     if (!asideEl || !painel) return;
+    const fin = state.snapshot?.financeiro || painel.financeiro || {};
+    const situacaoLabel = labelSituacaoFinanceiraOficial(fin.situacaoFinanceira)
+      || labelSituacaoFinanceira(fin.situacaoFinanceira)
+      || '—';
     const fields = {
-      vendidos: String(painel.produtosVendidos),
-      devolvidos: String(painel.produtosDevolvidos),
-      perdas: String(painel.perdas),
-      cortesias: String(painel.cortesias),
-      valorTotal: formatCurrency(painel.valorTotal),
-      valorAPagar: formatCurrency(painel.valorAPagar || painel.saldoDevedor || 0),
-      valorRecebido: formatCurrency(painel.valorRecebido),
-      saldoFinal: formatCurrency(painel.saldoFinal)
+      vendidos: String(painel.produtosVendidos ?? 0),
+      devolvidos: String(painel.produtosDevolvidos ?? 0),
+      perdas: String(painel.perdas ?? 0),
+      cortesias: String(painel.cortesias ?? 0),
+      pendentes: String(painel.pendentes ?? 0),
+      valorVenda: formatCurrency(fin.valorVenda),
+      valorRecebido: formatCurrency(fin.valorRecebido),
+      saldoEmAberto: formatCurrency(fin.saldoEmAberto),
+      situacaoFinanceira: situacaoLabel
     };
     Object.entries(fields).forEach(([key, value]) => {
       const el = asideEl.querySelector(`[data-painel="${key}"]`);
       if (el) el.textContent = value;
     });
+
+    const sitMetric = asideEl.querySelector('.cds-retornos-sidebar__metric--sit');
+    if (sitMetric) {
+      sitMetric.classList.remove(
+        'cds-retornos-sidebar__metric--ok',
+        'cds-retornos-sidebar__metric--warn',
+        'cds-retornos-sidebar__metric--open'
+      );
+      sitMetric.classList.add(
+        `cds-retornos-sidebar__metric--${FecharConsignacaoView._situacaoSidebarTone(fin.situacaoFinanceira)}`
+      );
+    }
 
     let statusEl = asideEl.querySelector('#fechar-persistencia-status');
     if (!statusEl) {
@@ -332,193 +740,427 @@ class FecharConsignacaoView {
     return bar;
   }
 
-  static renderPagamento(state, ctx) {
-    const wrap = document.createElement('div');
-    wrap.className = 'cds-fechar-consignacao__momento';
+  static _formatPagamentoQuando(data) {
+    if (!data) return '—';
+    const d = new Date(data);
+    if (Number.isNaN(d.getTime())) return safeText(formatDateTime(data));
+    const hoje = new Date();
+    const mesmoDia = d.toDateString() === hoje.toDateString();
+    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    if (mesmoDia) return `Hoje ${hora}`;
+    return `${d.toLocaleDateString('pt-BR')} ${hora}`;
+  }
 
-    const title = document.createElement('h2');
-    title.className = 'cds-fechar-consignacao__titulo';
-    title.textContent = 'Pagamento';
-    wrap.appendChild(title);
+  static _fiscalBadge(situacaoCodigo = '', label = '') {
+    const sit = String(situacaoCodigo || '').toUpperCase();
+    if (sit === 'AUTORIZADA' || sit === 'NAO_APLICAVEL') {
+      return { marca: '✓', texto: sit === 'NAO_APLICAVEL' ? 'Não aplicável' : 'Autorizada', tom: 'ok' };
+    }
+    if (sit === 'PENDENTE_REGULARIZACAO' || sit === 'REJEITADA') {
+      return { marca: '⚠', texto: sit === 'REJEITADA' ? (label || 'Rejeitada') : 'Pendente', tom: 'warn' };
+    }
+    if (sit === 'EMITINDO') {
+      return { marca: '●', texto: label || 'Emitindo…', tom: 'atual' };
+    }
+    return { marca: '○', texto: label || 'Pendente', tom: 'pendente' };
+  }
 
-    // Sempre do servidor — o valor digitado no formulário não antecipa quitação
-    const painel = buildPainelLateral(state.resumoPrestacao, state.resumoPrestacao?.itens || []);
-
-    const hero = document.createElement('div');
-    hero.className = 'cds-fechar-consignacao__pagamento-hero';
-    hero.innerHTML = `
-      <div class="cds-fechar-consignacao__pagamento-hero-item">
-        <label>Valor a pagar</label>
-        <strong>${formatCurrency(painel.valorAPagar || painel.saldoDevedor || 0)}</strong>
+  static _htmlCardFinanceiro(fin, situacaoLabel) {
+    return `
+      <h3 class="cds-op-card__titulo">Resumo Financeiro</h3>
+      <div class="cds-op-kpis">
+        <div class="cds-op-kpi cds-op-kpi--venda">
+          <span class="cds-op-kpi__label">Valor da Venda</span>
+          <strong class="cds-op-kpi__valor" data-kpi="venda">${formatCurrency(fin.valorVenda)}</strong>
+        </div>
+        <div class="cds-op-kpi cds-op-kpi--recebido">
+          <span class="cds-op-kpi__label">Recebido</span>
+          <strong class="cds-op-kpi__valor" data-kpi="recebido">${formatCurrency(fin.valorRecebido)}</strong>
+        </div>
+        <div class="cds-op-kpi cds-op-kpi--saldo">
+          <span class="cds-op-kpi__label">Saldo</span>
+          <strong class="cds-op-kpi__valor" data-kpi="saldo">${formatCurrency(fin.saldoEmAberto)}</strong>
+        </div>
       </div>
-      <div class="cds-fechar-consignacao__pagamento-hero-item">
-        <label>Total vendido</label>
-        <strong>${formatCurrency(painel.valorTotal)}</strong>
-      </div>
-      <div class="cds-fechar-consignacao__pagamento-hero-item">
-        <label>Unidades vendidas</label>
-        <strong>${painel.produtosVendidos}</strong>
+      <p class="cds-op-card__meta">Situação Financeira<br><strong data-kpi="situacao">${safeText(situacaoLabel)}</strong></p>
+    `;
+  }
+
+  static _htmlListaPagamentos(pagamentos = []) {
+    if (!pagamentos.length) {
+      return '<p class="cds-caption cds-op-empty">Nenhum pagamento registrado nesta prestação.</p>';
+    }
+    return `
+      <div class="cds-op-hist-modal-table" role="table">
+        <div class="cds-op-hist-modal-table__head" role="row">
+          <span>Forma</span><span>Valor</span><span>Data/Hora</span><span>Operador</span><span>Observação</span>
+        </div>
+        ${pagamentos.map((p) => `
+          <div class="cds-op-hist-modal-table__row" role="row">
+            <span>${safeText(p.forma)}</span>
+            <strong>${formatCurrency(p.valor)}</strong>
+            <span>${safeText(formatDateTime(p.data))}</span>
+            <span>${safeText(p.operador)}</span>
+            <span>${safeText(p.observacao || '—')}</span>
+          </div>
+        `).join('')}
       </div>
     `;
-    wrap.appendChild(hero);
+  }
 
-    if (painel.saldoDevedor > 0) {
-      wrap.appendChild(Alert.create({
-        message: `Saldo devedor: ${formatCurrency(painel.saldoDevedor)}`,
-        variant: 'warning',
+  static _buildBlocoPagamentos(state, ctx, fin) {
+    const section = document.createElement('section');
+    section.className = 'cds-op-card cds-op-card--pagamentos';
+    section.dataset.card = 'pagamentos';
+    section.innerHTML = '<h3 class="cds-op-card__titulo">Pagamento</h3>';
+
+    if (Number(fin.saldoEmAberto) <= 0.01) {
+      section.appendChild(Alert.create({
+        message: MENSAGENS.PRESTACAO_QUITADA,
+        variant: 'success',
         dismissible: false
       }));
+    } else {
+      const draft = state.pagamentoDraft || { valor: '', formaPagamento: 'DINHEIRO' };
+      const form = document.createElement('div');
+      form.className = 'cds-fechar-consignacao__pagamento-form cds-op-pagamento-form';
+
+      const valorField = document.createElement('div');
+      valorField.className = 'cds-fechar-consignacao__campo';
+      valorField.innerHTML = '<label>Valor deste pagamento</label>';
+      valorField.appendChild(Input.create({
+        type: 'number',
+        placeholder: '0,00',
+        value: draft.valor || '',
+        onChange: (v) => ctx.onPagamentoChange('valor', v)
+      }));
+      form.appendChild(valorField);
+
+      const formaField = document.createElement('div');
+      formaField.className = 'cds-fechar-consignacao__campo';
+      formaField.innerHTML = '<label>Forma</label>';
+      formaField.appendChild(Select.create({
+        options: [
+          { value: 'DINHEIRO', label: 'Dinheiro' },
+          { value: 'PIX', label: 'PIX' },
+          { value: 'TRANSFERENCIA', label: 'Transferência' },
+          { value: 'CHEQUE', label: 'Cheque' },
+          { value: 'CARTAO', label: 'Cartão' }
+        ],
+        value: draft.formaPagamento || 'DINHEIRO',
+        onChange: (v) => ctx.onPagamentoChange('formaPagamento', v)
+      }));
+      form.appendChild(formaField);
+      section.appendChild(form);
+
+      if (state.pagamentoErro) {
+        section.appendChild(Alert.create({
+          message: state.pagamentoErro,
+          variant: 'error',
+          dismissible: true
+        }));
+      }
+
+      const registrarWrap = document.createElement('div');
+      registrarWrap.className = 'cds-op-pagamento-actions';
+      registrarWrap.appendChild(Button.create({
+        text: state.loading?.operation ? 'Registrando…' : 'Registrar Pagamento',
+        variant: 'secondary',
+        disabled: Boolean(state.loading?.operation),
+        onClick: () => ctx.onRegistrarPagamento && ctx.onRegistrarPagamento()
+      }));
+      section.appendChild(registrarWrap);
     }
-    if (painel.saldoCredor > 0) {
+
+    const histBtn = document.createElement('div');
+    histBtn.className = 'cds-op-pagamento-historico-btn';
+    histBtn.appendChild(Button.create({
+      text: 'Histórico de Pagamentos',
+      variant: 'ghost',
+      onClick: () => ctx.onAbrirHistoricoPagamentos && ctx.onAbrirHistoricoPagamentos()
+    }));
+    section.appendChild(histBtn);
+    return section;
+  }
+
+  static abrirModalHistoricoPagamentos(pagamentos = [], onClose) {
+    const content = document.createElement('div');
+    content.className = 'cds-op-hist-modal';
+    content.innerHTML = FecharConsignacaoView._htmlListaPagamentos(pagamentos);
+
+    let backdrop = null;
+    const fechar = () => {
+      if (!backdrop) return;
+      backdrop.classList.remove('cds-modal-backdrop--open', 'is-open');
+      setTimeout(() => backdrop.remove(), 180);
+      if (onClose) onClose();
+    };
+
+    const footer = document.createElement('div');
+    footer.appendChild(Button.create({
+      text: 'Fechar',
+      variant: 'secondary',
+      onClick: fechar
+    }));
+
+    backdrop = Modal.create({
+      title: 'Histórico de Pagamentos',
+      content,
+      footer,
+      open: false,
+      onClose: fechar
+    });
+    backdrop.classList.add('cds-op-hist-modal-backdrop');
+    document.body.appendChild(backdrop);
+    requestAnimationFrame(() => backdrop.classList.add('cds-modal-backdrop--open', 'is-open'));
+    return backdrop;
+  }
+
+  static _buildCardInfoPrestacao(state, fechamento) {
+    const consignacao = state.consignacao || {};
+    const dataRef = consignacao.dataEntrega
+      || consignacao.dataPrestacao
+      || consignacao.updatedAt
+      || consignacao.createdAt
+      || null;
+    const observacao = consignacao.observacao
+      || consignacao.observacoes
+      || state.clienteDetalhe?.observacao
+      || '—';
+    const section = document.createElement('section');
+    section.className = 'cds-op-card cds-op-card--info';
+    section.dataset.card = 'info';
+    section.innerHTML = `
+      <h3 class="cds-op-card__titulo">Informações da Prestação</h3>
+      <dl class="cds-op-info-list">
+        <div><dt>Cliente</dt><dd>${safeText(fechamento.cliente)}</dd></div>
+        <div><dt>Documento</dt><dd>${safeText(fechamento.documento)}</dd></div>
+        <div><dt>Data</dt><dd>${safeText(dataRef ? formatDate(dataRef) : '—')}</dd></div>
+        <div><dt>Operador</dt><dd>${safeText(getOperadorNomeLocal())}</dd></div>
+        <div class="cds-op-info-list__obs"><dt>Observação</dt><dd>${safeText(observacao)}</dd></div>
+      </dl>
+    `;
+    return section;
+  }
+
+  static _buildCardFiscal(state, fechamento) {
+    const snap = state.snapshot || {};
+    const vendaId = fechamento.vendaId || snap.vendaOficial?.vendaId || null;
+    const vendaBadge = vendaId
+      ? { marca: '✓', texto: 'Criada', tom: 'ok' }
+      : { marca: '○', texto: 'Aguardando', tom: 'pendente' };
+    const nfceBadge = FecharConsignacaoView._fiscalBadge(
+      fechamento.situacaoFiscal,
+      fechamento.situacaoFiscalLabel
+    );
+
+    const section = document.createElement('section');
+    section.className = 'cds-op-card cds-op-card--fiscal';
+    section.dataset.card = 'fiscal';
+    section.innerHTML = `
+      <h3 class="cds-op-card__titulo">Situação Fiscal</h3>
+      <div class="cds-op-status-rows">
+        <div class="cds-op-status-row">
+          <span class="cds-op-status-row__label">Venda Oficial</span>
+          <span class="cds-op-status-pill cds-op-status-pill--${vendaBadge.tom}">
+            <span aria-hidden="true">${vendaBadge.marca}</span> ${vendaBadge.texto}
+          </span>
+        </div>
+        <div class="cds-op-status-row">
+          <span class="cds-op-status-row__label">NFC-e</span>
+          <span class="cds-op-status-pill cds-op-status-pill--${nfceBadge.tom}">
+            <span aria-hidden="true">${nfceBadge.marca}</span> ${safeText(nfceBadge.texto)}
+          </span>
+        </div>
+      </div>
+      <p class="cds-op-proximo">
+        <span>Próximo passo</span>
+        <strong>${safeText(fechamento.proximoPasso)}</strong>
+      </p>
+    `;
+    return section;
+  }
+
+  static _htmlLog(logs = []) {
+    if (!logs.length) {
+      return '<p class="cds-caption cds-op-empty">Nenhuma ação registrada nesta sessão.</p>';
+    }
+    return `
+      <ul class="cds-prestacao-log-list">
+        ${logs.slice(0, 8).map((l) => `
+          <li>
+            <span class="cds-prestacao-log-list__hora">${safeText(formatDateTime(l.em))}</span>
+            <strong>${safeText(l.acao)}</strong>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+  }
+
+  /**
+   * Patch seletivo dos cards (STAB-07.4) — evita reload visual da estação.
+   */
+  static patchCentralOperacional(root, state, ctx, scopes = []) {
+    if (!root) return false;
+    const snap = state.snapshot || {};
+    const fin = snap.financeiro || _financeiroFromState(state);
+    if (!fin) return false;
+    const fechamento = buildPainelFechamentoOperacional({
+      consignacao: state.consignacao || {},
+      clienteDetalhe: state.clienteDetalhe,
+      financeiro: fin,
+      faturamento: state.faturamento,
+      emitindoNfce: Boolean(state.emitindoNfce)
+    });
+    const set = new Set(scopes.length ? scopes : ['financeiro', 'pagamentos', 'fiscal', 'info']);
+
+    if (set.has('financeiro')) {
+      const card = root.querySelector('[data-card="financeiro"]');
+      if (card) {
+        card.innerHTML = FecharConsignacaoView._htmlCardFinanceiro(
+          fin,
+          fechamento.situacaoFinanceiraLabel
+        );
+        card.classList.add('cds-op-card--flash');
+        setTimeout(() => card.classList.remove('cds-op-card--flash'), 450);
+      }
+    }
+    if (set.has('pagamentos')) {
+      const pagCard = root.querySelector('[data-card="pagamentos"]');
+      if (pagCard) {
+        const novo = FecharConsignacaoView._buildBlocoPagamentos(state, ctx, fin);
+        pagCard.replaceWith(novo);
+        novo.classList.add('cds-op-card--flash');
+        setTimeout(() => novo.classList.remove('cds-op-card--flash'), 450);
+      }
+    }
+    if (set.has('fiscal')) {
+      const card = root.querySelector('[data-card="fiscal"]');
+      if (card) {
+        const novo = FecharConsignacaoView._buildCardFiscal(state, fechamento);
+        card.replaceWith(novo);
+        novo.classList.add('cds-op-card--flash');
+        setTimeout(() => novo.classList.remove('cds-op-card--flash'), 450);
+      }
+    }
+    if (set.has('info')) {
+      const card = root.querySelector('[data-card="info"]');
+      if (card) {
+        const novo = FecharConsignacaoView._buildCardInfoPrestacao(state, fechamento);
+        card.replaceWith(novo);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Estação Operacional — layout oficial STAB-07.4 (duas colunas).
+   */
+  static renderConferenciaFinal(state, ctx) {
+    const wrap = document.createElement('div');
+    wrap.className = 'cds-fechar-consignacao__momento cds-prestacao-central-operacional';
+
+    const title = document.createElement('h2');
+    title.className = 'cds-fechar-consignacao__titulo cds-op-titulo';
+    title.textContent = 'Estação Operacional';
+    wrap.appendChild(title);
+
+    const snap = state.snapshot || {};
+    const fin = snap.financeiro || _financeiroFromState(state);
+    if (!fin) {
       wrap.appendChild(Alert.create({
-        message: `Saldo credor: ${formatCurrency(painel.saldoCredor)}`,
+        message: 'Carregando dados financeiros…',
         variant: 'info',
         dismissible: false
       }));
+      return wrap;
     }
 
-    const form = document.createElement('div');
-    form.className = 'cds-fechar-consignacao__pagamento-form';
+    auditarIntegridadeNoResumo(fin, {
+      consignacaoId: state.consignacao?.id,
+      clienteId: state.consignacao?.clienteId,
+      cliente: state.clienteDetalhe?.nome || state.consignacao?.clienteNome,
+      documento: state.consignacao?.documento,
+      origem: 'resumo-final'
+    });
+    auditarCadeiaFiscal({
+      faturamento: state.faturamento,
+      financeiro: fin,
+      historico: state.historico || []
+    });
+    auditarFinalRC1({
+      consignacao: state.consignacao || {},
+      financeiro: fin,
+      faturamento: state.faturamento,
+      historico: state.historico || [],
+      itens: snap.itens || []
+    });
 
-    const valorField = document.createElement('div');
-    valorField.className = 'cds-fechar-consignacao__campo';
-    valorField.innerHTML = '<label>Valor Recebido</label>';
-    valorField.appendChild(Input.create({
-      type: 'number',
-      placeholder: '0,00',
-      value: state.pagamentoForm.valor,
-      onChange: (v) => ctx.onPagamentoChange('valor', v)
-    }));
-    form.appendChild(valorField);
-
-    const formaField = document.createElement('div');
-    formaField.className = 'cds-fechar-consignacao__campo';
-    formaField.innerHTML = '<label>Forma de Pagamento</label>';
-    formaField.appendChild(Select.create({
-      options: [
-        { value: 'DINHEIRO', label: 'Dinheiro' },
-        { value: 'PIX', label: 'PIX' },
-        { value: 'TRANSFERENCIA', label: 'Transferência' },
-        { value: 'CHEQUE', label: 'Cheque' },
-        { value: 'CARTAO', label: 'Cartão' }
-      ],
-      value: state.pagamentoForm.formaPagamento,
-      onChange: (v) => ctx.onPagamentoChange('formaPagamento', v)
-    }));
-    form.appendChild(formaField);
-
-    const obsField = document.createElement('div');
-    obsField.className = 'cds-fechar-consignacao__campo';
-    obsField.innerHTML = '<label>Observações</label>';
-    obsField.appendChild(Textarea.create({
-      placeholder: 'Observações sobre o pagamento',
-      value: state.pagamentoForm.observacoes,
-      onChange: (v) => ctx.onPagamentoChange('observacoes', v)
-    }));
-    form.appendChild(obsField);
-
-    wrap.appendChild(form);
-
-    if (state.pagamentoErro) {
-      wrap.appendChild(Alert.create({
-        message: state.pagamentoErro,
-        variant: 'error',
-        dismissible: true
+    if (state.ultimaFalhaEmitir?.mensagem) {
+      wrap.appendChild(criarAlertaErroOperacional(Alert, state.ultimaFalhaEmitir, {
+        onRetry: state.ultimaFalhaEmitir.retryable
+          ? () => ctx.onEmitirNfceRetry && ctx.onEmitirNfceRetry()
+          : null,
+        onClose: () => ctx.onLimparFalhaEmitir && ctx.onLimparFalhaEmitir()
       }));
     }
 
-    const registrarBtn = Button.create({
-      text: state.loading.operation ? 'Registrando...' : 'Registrar Pagamento',
-      variant: 'primary',
-      disabled: state.loading.operation,
-      onClick: () => ctx.onRegistrarPagamento()
+    const fechamento = buildPainelFechamentoOperacional({
+      consignacao: state.consignacao || {},
+      clienteDetalhe: state.clienteDetalhe,
+      financeiro: fin,
+      faturamento: state.faturamento,
+      emitindoNfce: Boolean(state.emitindoNfce)
     });
-    wrap.appendChild(registrarBtn);
+    assertMesmoFinanceiro(fin, buildResumoFinalOficial({
+      financeiro: fin,
+      faturamento: state.faturamento
+    }));
 
-    return wrap;
-  }
+    const grid = document.createElement('div');
+    grid.className = 'cds-prestacao-central-grid';
 
-  static renderConferenciaFinal(state, ctx) {
-    const wrap = document.createElement('div');
-    wrap.className = 'cds-fechar-consignacao__momento cds-fechar-consignacao__momento--encerrar';
+    const colEsq = document.createElement('div');
+    colEsq.className = 'cds-prestacao-central-grid__col';
 
-    const title = document.createElement('h2');
-    title.className = 'cds-fechar-consignacao__titulo';
-    title.textContent = 'Resumo da Prestação';
-    wrap.appendChild(title);
-
-    const painel = buildPainelLateral(state.resumoPrestacao, state.resumoPrestacao?.itens || []);
-    const oficial = buildResumoFinalOficial(
-      state.resumoPrestacao,
-      state.resumoPrestacao?.itens || [],
-      painel,
-      state.faturamento
+    const finSection = document.createElement('section');
+    finSection.className = 'cds-op-card cds-op-card--financeiro';
+    finSection.dataset.card = 'financeiro';
+    finSection.innerHTML = FecharConsignacaoView._htmlCardFinanceiro(
+      fin,
+      fechamento.situacaoFinanceiraLabel
     );
-    const avisos = buildValidacoesFinais(state.resumoPrestacao, state.resumoPrestacao?.itens || [], painel);
+    colEsq.appendChild(finSection);
+    colEsq.appendChild(FecharConsignacaoView._buildBlocoPagamentos(state, ctx, fin));
 
-    const card = document.createElement('section');
-    card.className = 'cds-prestacao-resumo-oficial';
-    const fiscalIcon = oficial.situacaoFiscal === 'AUTORIZADA'
-      ? '✓'
-      : oficial.situacaoFiscal === 'REJEITADA'
-        ? '!'
-        : '○';
-    card.innerHTML = `
-      <div class="cds-prestacao-resumo-oficial__linha">
-        <span>Venda Consignada</span>
-        <strong>${formatCurrency(oficial.valorVenda)}</strong>
-      </div>
-      <div class="cds-prestacao-resumo-oficial__linha">
-        <span>Recebido nesta prestação</span>
-        <strong>${formatCurrency(oficial.valorRecebido)}</strong>
-      </div>
-      <div class="cds-prestacao-resumo-oficial__linha">
-        <span>Saldo pendente</span>
-        <strong>${formatCurrency(oficial.saldoEmAberto)}</strong>
-      </div>
-      <div class="cds-prestacao-resumo-oficial__situacao">
-        <span>Situação Financeira</span>
-        <strong>${oficial.situacaoFinanceiraLabel}</strong>
-      </div>
-      <div class="cds-prestacao-resumo-oficial__situacao" data-fiscal="${oficial.situacaoFiscal}">
-        <span>Situação Fiscal</span>
-        <strong>${fiscalIcon} ${oficial.situacaoFiscalLabel}</strong>
-      </div>
-      <ul class="cds-prestacao-resumo-oficial__avisos">
-        ${oficial.avisos.map((a) => `<li>✓ ${a}</li>`).join('')}
-      </ul>
-    `;
-    wrap.appendChild(card);
+    const colDir = document.createElement('div');
+    colDir.className = 'cds-prestacao-central-grid__col';
 
-    if (oficial.situacaoFiscal === 'AUTORIZADA' && oficial.vendaId) {
+    colDir.appendChild(FecharConsignacaoView._buildCardFiscal(state, fechamento));
+
+    if (fechamento.situacaoFiscal === 'AUTORIZADA' && fechamento.vendaId) {
       const danfeWrap = document.createElement('div');
-      danfeWrap.className = 'cds-prestacao-resumo-oficial__danfe';
+      danfeWrap.className = 'cds-op-danfe-actions';
       danfeWrap.appendChild(Button.create({
         text: 'Visualizar DANFE',
-        variant: 'secondary',
-        onClick: () => ctx.onVisualizarDanfe && ctx.onVisualizarDanfe(oficial.vendaId)
+        variant: 'ghost',
+        size: 'sm',
+        onClick: () => ctx.onVisualizarDanfe && ctx.onVisualizarDanfe(fechamento.vendaId)
       }));
       danfeWrap.appendChild(Button.create({
-        text: 'Reimprimir DANFE',
+        text: 'Reimprimir',
         variant: 'ghost',
-        onClick: () => ctx.onReimprimirDanfe && ctx.onReimprimirDanfe(oficial.vendaId)
+        size: 'sm',
+        onClick: () => ctx.onReimprimirDanfe && ctx.onReimprimirDanfe(fechamento.vendaId)
       }));
-      wrap.appendChild(danfeWrap);
+      colDir.appendChild(danfeWrap);
     }
 
-    if (avisos.length) {
-      const box = document.createElement('div');
-      box.className = 'cds-fechar-consignacao__avisos';
-      avisos.slice(0, 3).forEach((a) => {
-        box.appendChild(Alert.create({
-          message: a.message,
-          variant: a.nivel === 'danger' ? 'error' : 'warning',
-          dismissible: false
-        }));
-      });
-      wrap.appendChild(box);
-    }
+    colDir.appendChild(FecharConsignacaoView._buildCardInfoPrestacao(state, fechamento));
 
+    grid.appendChild(colEsq);
+    grid.appendChild(colDir);
+    wrap.appendChild(grid);
     return wrap;
   }
 
@@ -526,12 +1168,13 @@ class FecharConsignacaoView {
     const wrap = document.createElement('div');
     wrap.className = 'cds-fechar-consignacao__momento cds-central-encerramento cds-central-encerramento--ux12';
 
-    const painel = state.painel
-      || buildPainelLateral(state.resumoPrestacao, state.resumoPrestacao?.itens || []);
+    const fin = _financeiroFromState(state)
+      || buildPainelLateral(state.resumoPrestacao, state.resumoPrestacao?.itens || []).financeiro;
     const vm = buildCentralEncerramento({
       consignacao: state.consignacao,
       resumo: state.resumoPrestacao,
-      painel,
+      financeiro: fin,
+      painel: state.painel,
       clienteDetalhe: state.clienteDetalhe,
       dataEncerramento: state.dataEncerramento || new Date()
     });
@@ -548,8 +1191,8 @@ class FecharConsignacaoView {
       ${!financeiro.quitado ? `
       <section class="cds-central-encerramento__situacao cds-central-encerramento__situacao--warning">
         <p class="cds-central-encerramento__situacao-label">
-          Saldo em aberto
-          <span class="cds-central-encerramento__situacao-valor">${formatCurrency(financeiro.saldoDevedor)}</span>
+          Saldo em Aberto
+          <span class="cds-central-encerramento__situacao-valor">${formatCurrency(financeiro.saldoEmAberto)}</span>
         </p>
       </section>
       ` : ''}
@@ -597,7 +1240,13 @@ class FecharConsignacaoView {
   }
 
   static renderPainelLateral(state) {
-    const painel = state.painel || buildPainelLateral(state.resumoPrestacao, state.resumoPrestacao?.itens || []);
+    const fin = _financeiroFromState(state);
+    const painel = state.painel || buildPainelLateral(
+      state.resumoPrestacao,
+      state.resumoPrestacao?.itens || [],
+      fin
+    );
+    const financeiro = fin || painel.financeiro;
     const aside = document.createElement('aside');
     aside.className = 'cds-fechar-consignacao__painel';
     aside.id = 'fechar-painel-lateral';
@@ -611,22 +1260,16 @@ class FecharConsignacaoView {
       { label: 'Devolvidos', key: 'devolvidos', value: String(painel.produtosDevolvidos) },
       { label: 'Perdas', key: 'perdas', value: String(painel.perdas) },
       { label: 'Cortesias', key: 'cortesias', value: String(painel.cortesias) },
-      { label: 'Valor Total', key: 'valorTotal', value: formatCurrency(painel.valorTotal) }
-    ];
-
-    if ((painel.valorAPagar || painel.saldoDevedor) > 0) {
-      campos.push({
-        label: 'Valor a Pagar',
-        key: 'valorAPagar',
-        value: formatCurrency(painel.valorAPagar || painel.saldoDevedor),
+      { label: 'Valor da Venda', key: 'valorVenda', value: formatCurrency(financeiro.valorVenda), destaque: true },
+      { label: 'Já Recebido', key: 'valorRecebido', value: formatCurrency(financeiro.valorRecebido), destaque: true },
+      { label: 'Saldo em Aberto', key: 'saldoEmAberto', value: formatCurrency(financeiro.saldoEmAberto), destaque: true },
+      {
+        label: 'Situação Financeira',
+        key: 'situacaoFinanceira',
+        value: labelSituacaoFinanceira(financeiro.situacaoFinanceira),
         destaque: true
-      });
-    }
-
-    campos.push(
-      { label: 'Valor Recebido', key: 'valorRecebido', value: formatCurrency(painel.valorRecebido), destaque: true },
-      { label: 'Saldo Final', key: 'saldoFinal', value: formatCurrency(painel.saldoFinal), destaque: true }
-    );
+      }
+    ];
 
     campos.forEach((c) => {
       const cell = document.createElement('div');

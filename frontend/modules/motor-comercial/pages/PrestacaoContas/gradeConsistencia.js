@@ -7,7 +7,12 @@
 
 const CAMPOS_QTY = Object.freeze(['devolvido', 'vendido', 'perdido', 'cortesia']);
 
-const { calcularSaldoItem, listarPendenciasRetornos, campoParaTipo } = require('./fecharConsignacaoMappers');
+const {
+  calcularSaldoItem,
+  listarPendenciasRetornos,
+  campoParaTipo,
+  syncStatusOperacional
+} = require('./fecharConsignacaoMappers');
 
 function snapshotQty(item = {}) {
   return {
@@ -68,14 +73,25 @@ function limparDirtyTodos(itens = []) {
 function aplicarValorState(item, campo, value) {
   if (!item) return null;
   if (campo === 'observacao') {
-    item.observacao = value;
+    const prev = item.observacao != null ? String(item.observacao) : '';
+    const next = value != null ? String(value) : '';
+    item.observacao = next;
+    if (next !== prev) marcarDirty(item, 'observacao');
     return item;
   }
   if (!CAMPOS_QTY.includes(campo)) return item;
   const next = Math.max(0, Number(value) || 0);
   const prev = Number(item[campo] || 0);
   item[campo] = next;
-  item.saldo = calcularSaldoItem(item);
+  // espelha campos oficiais do ItemConsignacao
+  if (campo === 'vendido') item.quantidadeVendida = next;
+  if (campo === 'devolvido') item.quantidadeDevolvida = next;
+  if (campo === 'perdido') {
+    item.quantidadePerdida = next;
+    item.quantidadePerda = next;
+  }
+  if (campo === 'cortesia') item.quantidadeCortesia = next;
+  syncStatusOperacional(item);
   if (next !== prev) marcarDirty(item, campo);
   return item;
 }
@@ -113,7 +129,15 @@ function mesclarServidorPreservandoDirty(servidorItens = [], stateItens = []) {
   return (servidorItens || []).map((serverItem, index) => {
     const prev = stateItens[index];
     if (!prev || !itemEstaDirty(prev)) {
-      return { ...serverItem, dirty: false, dirtyCampos: {}, saldo: calcularSaldoItem(serverItem) };
+      const clean = {
+        ...serverItem,
+        dirty: false,
+        dirtyCampos: {},
+        observacao: prev?.observacao != null && prev.observacao !== ''
+          ? prev.observacao
+          : (serverItem.observacao || '')
+      };
+      return syncStatusOperacional(clean);
     }
     const merged = { ...serverItem };
     CAMPOS_QTY.forEach((campo) => {
@@ -124,8 +148,7 @@ function mesclarServidorPreservandoDirty(servidorItens = [], stateItens = []) {
     if (prev.observacao != null) merged.observacao = prev.observacao;
     merged.dirty = true;
     merged.dirtyCampos = { ...(prev.dirtyCampos || {}) };
-    merged.saldo = calcularSaldoItem(merged);
-    return merged;
+    return syncStatusOperacional(merged);
   });
 }
 

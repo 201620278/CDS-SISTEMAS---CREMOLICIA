@@ -191,17 +191,34 @@ function mapConsignacaoItemFromRow(row) {
   const quantidade = row.quantidade != null
     ? Number(row.quantidade)
     : quantidadeEntregue;
+  const quantidadeDevolvida = Number(row.quantidade_devolvida ?? 0);
+  const quantidadeVendida = Number(row.quantidade_vendida ?? 0);
+  const quantidadePerdida = Number(row.quantidade_perdida ?? 0);
+  const quantidadeCortesia = Number(row.quantidade_cortesia ?? 0);
+  const saldo = Math.max(
+    0,
+    quantidadeEntregue - quantidadeDevolvida - quantidadeVendida - quantidadePerdida - quantidadeCortesia
+  );
+  const produtoNome = row.produto_nome ?? row.produtoNome ?? null;
   return {
     id: row.id,
     consignacaoId: row.consignacao_id,
     produtoId: row.produto_id,
+    produtoNome: produtoNome != null && String(produtoNome).trim() !== ''
+      ? String(produtoNome).trim()
+      : null,
+    codigo: row.produto_codigo ?? row.codigo ?? null,
+    unidade: row.produto_unidade ?? row.unidade ?? 'UN',
     quantidade,
     quantidadeEntregue,
-    quantidadeDevolvida: Number(row.quantidade_devolvida ?? 0),
-    quantidadeVendida: Number(row.quantidade_vendida ?? 0),
-    quantidadePerdida: Number(row.quantidade_perdida ?? 0),
-    quantidadeCortesia: Number(row.quantidade_cortesia ?? 0),
+    quantidadeDevolvida,
+    quantidadeVendida,
+    quantidadePerdida,
+    quantidadeCortesia,
+    saldo,
+    observacao: row.observacao ?? null,
     precoUnitario: Number(row.preco_unitario ?? 0),
+    valorUnitario: Number(row.preco_unitario ?? 0),
     precoTotal: Number(row.preco_unitario ?? 0) * quantidade,
     subtotalEntregue: Number(row.subtotal_entregue ?? 0),
     subtotalAcertado: Number(row.subtotal_acertado ?? 0),

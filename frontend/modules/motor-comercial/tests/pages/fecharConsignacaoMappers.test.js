@@ -24,13 +24,11 @@ const {
 } = require('../../pages/PrestacaoContas/fecharConsignacaoMappers');
 
 describe('fecharConsignacaoMappers', () => {
-  test('MOMENTOS_FECHAMENTO possui cinco etapas', () => {
-    expect(MOMENTOS_FECHAMENTO).toHaveLength(5);
+  test('MOMENTOS_FECHAMENTO — STAB-07.1 duas etapas + encerramento', () => {
+    expect(MOMENTOS_FECHAMENTO).toHaveLength(3);
     expect(MOMENTOS_FECHAMENTO.map((m) => m.label)).toEqual([
-      'Conferir Produtos',
       'Registrar Retornos',
-      'Pagamento',
-      'Conferência Final',
+      'Resumo Final',
       'Encerramento'
     ]);
   });
@@ -45,18 +43,21 @@ describe('fecharConsignacaoMappers', () => {
     expect(totais.pendentes).toBe(1);
   });
 
-  test('buildPainelLateral calcula saldo devedor e credor', () => {
+  test('buildPainelLateral usa SSOT financeiro (não soma itens)', () => {
     const painel = buildPainelLateral(
-      { valorVendido: 500, valorRecebido: 300, saldoAtual: 200 },
-      [{ vendido: 5, devolvido: 0, perdido: 0, cortesia: 0, saldo: 0 }]
+      { valorVendido: 500, valorRecebido: 300 },
+      [{ vendido: 5, devolvido: 0, perdido: 0, cortesia: 0, saldo: 0, preco: 999 }]
     );
-    expect(painel.saldoDevedor).toBe(200);
-    expect(painel.saldoCredor).toBe(0);
+    expect(painel.valorVenda).toBe(500);
+    expect(painel.valorRecebido).toBe(300);
+    expect(painel.saldoEmAberto).toBe(200);
+    expect(painel.situacaoFinanceira).toBe('PARCIALMENTE_RECEBIDA');
+    expect(painel.financeiro.saldoEmAberto).toBe(200);
   });
 
-  test('buildPainelLateral deriva totais dos itens quando resumo vem zerado', () => {
+  test('buildPainelLateral não recalcula R$ a partir dos itens', () => {
     const painel = buildPainelLateral(
-      { valorVendido: 0, valorRecebido: 0, saldoAtual: 0 },
+      { valorVendido: 0, valorRecebido: 0 },
       [
         { vendido: 2, devolvido: 1, perdido: 0, cortesia: 0, preco: 15, enviado: 5 },
         { vendido: 1, devolvido: 0, perdido: 0, cortesia: 0, preco: 20, enviado: 3 }
@@ -64,8 +65,8 @@ describe('fecharConsignacaoMappers', () => {
     );
     expect(painel.produtosVendidos).toBe(3);
     expect(painel.produtosDevolvidos).toBe(1);
-    expect(painel.valorTotal).toBe(50);
-    expect(painel.valorAPagar).toBe(50);
+    expect(painel.valorVenda).toBe(0);
+    expect(painel.saldoEmAberto).toBe(0);
   });
 
   test('mergeItensRetornos preserva maior quantidade entre servidor e rascunho', () => {
@@ -148,8 +149,9 @@ describe('fecharConsignacaoMappers', () => {
 
   test('inicializarMomentos para encerrado', () => {
     const steps = inicializarMomentos(true);
-    expect(steps[4].state).toBe('current');
+    expect(steps[2].state).toBe('current');
     expect(steps[0].state).toBe('completed');
+    expect(steps[1].state).toBe('completed');
   });
 
   test('enriquecerItensPrestacao resolve produtoId e itemId da consignação', () => {
@@ -186,9 +188,9 @@ describe('fecharConsignacaoMappers', () => {
     expect(proximoCampoRetorno('vendido', 1)).toBe('perdido');
   });
 
-  test('buildPainelLateralPreview calcula totais com rascunho', () => {
+  test('buildPainelLateralPreview atualiza qtds sem recalcular R$', () => {
     const painel = buildPainelLateralPreview(
-      { valorRecebido: 50 },
+      { valorVendido: 40, valorRecebido: 50 },
       [
         { vendido: 2, devolvido: 1, perdido: 0, cortesia: 0, saldo: 0, preco: 10 },
         { vendido: 1, devolvido: 0, perdido: 1, cortesia: 0, saldo: 0, preco: 20 }
@@ -197,8 +199,9 @@ describe('fecharConsignacaoMappers', () => {
     expect(painel.produtosVendidos).toBe(3);
     expect(painel.produtosDevolvidos).toBe(1);
     expect(painel.perdas).toBe(1);
-    expect(painel.valorTotal).toBe(40);
-    expect(painel.saldoFinal).toBe(-10);
+    expect(painel.valorVenda).toBe(40);
+    expect(painel.valorRecebido).toBe(50);
+    expect(painel.saldoEmAberto).toBe(0);
     expect(painel.preview).toBe(true);
   });
 

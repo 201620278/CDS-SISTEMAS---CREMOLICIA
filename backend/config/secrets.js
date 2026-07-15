@@ -1,6 +1,7 @@
 /**
  * Centraliza segredos e chaves sensíveis via variáveis de ambiente.
- * Em produção, defina JWT_SECRET, TEF_ENCRYPTION_KEY, LICENSE_MASTER_KEY e ADMIN_SEED_PASSWORD.
+ * Em produção, defina JWT_SECRET, TEF_ENCRYPTION_KEY, LICENSE_MASTER_KEY.
+ * ADMIN_SEED_PASSWORD opcional — se ausente, bootstrap usa a senha padrão de instalação (pdb100623).
  */
 
 const DEV_JWT_FALLBACK = 'cds-dev-jwt-change-in-production';

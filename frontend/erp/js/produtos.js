@@ -1908,6 +1908,43 @@ function showProdutoModal(produto = null) {
                                         </div>
                                     </div>
                                 </div>
+
+                                <div class="row mt-3" id="secaoUnidadesComerciaisMuc" style="${isEdit ? '' : 'display:none;'}">
+                                    <div class="col-12">
+                                        <div class="card border-primary">
+                                            <div class="card-header d-flex justify-content-between align-items-center">
+                                                <strong><i class="fas fa-balance-scale me-2"></i>Unidades Comerciais (MUC)</strong>
+                                                <button type="button" class="btn btn-sm btn-primary" id="btnAdicionarUnidadeMuc" ${isEdit ? '' : 'disabled'}>
+                                                    + Adicionar Unidade
+                                                </button>
+                                            </div>
+                                            <div class="card-body">
+                                                <p class="small text-muted mb-2">
+                                                    Estoque e custo permanecem na unidade base (<strong id="mucUnidadeBaseLabel">${isEdit ? escapeHtml((produto.unidade || 'UN').toUpperCase()) : '—'}</strong>).
+                                                    ${isEdit ? '' : 'Salve o produto primeiro para cadastrar unidades adicionais.'}
+                                                </p>
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm table-striped mb-0" id="tabelaUnidadesMuc">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Unidade</th>
+                                                                <th>Fator → base</th>
+                                                                <th>Preço</th>
+                                                                <th>Cód. barras</th>
+                                                                <th>Principal</th>
+                                                                <th>Ativo</th>
+                                                                <th></th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="tbodyUnidadesMuc">
+                                                            <tr><td colspan="7" class="text-muted text-center">Carregando...</td></tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </form>
                     </div>
@@ -1944,6 +1981,9 @@ function showProdutoModal(produto = null) {
     inicializarMotorConversaoUnidadesCadastro();
     inicializarVendaUnidadeCadastro(produto, isEdit);
     inicializarVendaAtacado(produto, isEdit);
+    if (isEdit && produto?.id) {
+        inicializarUnidadesComerciaisMuc(produto.id);
+    }
 
     if (isEdit && produto) {
         $('#controlar_validade').prop('checked', produto.controlar_validade == 1);
@@ -4714,6 +4754,171 @@ function fecharModalVencimentosProdutos() {
     }
 }
 
+/* ========== MUC — Unidades Comerciais ========== */
+
+function inicializarUnidadesComerciaisMuc(produtoId) {
+    window._mucProdutoIdAtual = Number(produtoId);
+    carregarGradeUnidadesMuc(produtoId);
+    $('#btnAdicionarUnidadeMuc').off('click').on('click', () => abrirModalEditarUnidadeMuc(null));
+}
+
+function carregarGradeUnidadesMuc(produtoId) {
+    const $tbody = $('#tbodyUnidadesMuc');
+    if (!$tbody.length) return;
+
+    $tbody.html('<tr><td colspan="7" class="text-muted text-center">Carregando...</td></tr>');
+
+    $.get(`${API_URL}/produtos/${produtoId}/unidades`)
+        .done((unidades) => renderGradeUnidadesMuc(unidades || []))
+        .fail((xhr) => {
+            $tbody.html(`<tr><td colspan="7" class="text-danger text-center">${escapeHtml(xhr.responseJSON?.error || 'Erro ao carregar unidades')}</td></tr>`);
+        });
+}
+
+function renderGradeUnidadesMuc(unidades) {
+    const $tbody = $('#tbodyUnidadesMuc');
+    window._mucUnidadesCache = unidades || [];
+    if (!unidades.length) {
+        $tbody.html('<tr><td colspan="7" class="text-muted text-center">Nenhuma unidade comercial.</td></tr>');
+        return;
+    }
+
+    $tbody.html(unidades.map((u) => `
+        <tr>
+            <td><strong>${escapeHtml(u.unidade || '')}</strong>${u.descricao && u.descricao !== u.unidade ? `<div class="small text-muted">${escapeHtml(u.descricao)}</div>` : ''}</td>
+            <td>${Number(u.fator_conversao || 0)}</td>
+            <td>${formatCurrency(u.preco || 0)}</td>
+            <td>${escapeHtml(u.codigo_barras || '—')}</td>
+            <td>${Number(u.principal) === 1 ? '<span class="badge bg-success">Sim</span>' : `<button type="button" class="btn btn-link btn-sm p-0" onclick="marcarPrincipalUnidadeMuc(${u.id})">Definir</button>`}</td>
+            <td>${Number(u.ativo) === 1 ? 'Sim' : 'Não'}</td>
+            <td class="text-nowrap">
+                <button type="button" class="btn btn-sm btn-warning" onclick="editarUnidadeMucPorId(${u.id})"><i class="fas fa-edit"></i></button>
+                ${Number(u.principal) === 1 ? '' : `<button type="button" class="btn btn-sm btn-danger" onclick="excluirUnidadeMuc(${u.id})"><i class="fas fa-trash"></i></button>`}
+            </td>
+        </tr>
+    `).join(''));
+}
+
+function editarUnidadeMucPorId(unidadeId) {
+    const unidade = (window._mucUnidadesCache || []).find((u) => Number(u.id) === Number(unidadeId));
+    abrirModalEditarUnidadeMuc(unidade || null);
+}
+
+function abrirModalEditarUnidadeMuc(unidade) {
+    $('#modalUnidadeMucEditor').remove();
+    const isEdit = Boolean(unidade && unidade.id);
+    const html = `
+        <div class="modal fade" id="modalUnidadeMucEditor" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">${isEdit ? 'Editar' : 'Nova'} Unidade Comercial</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <label class="form-label">Unidade *</label>
+                            <input type="text" class="form-control" id="muc_unidade" value="${escapeHtml(unidade?.unidade || '')}" placeholder="Ex: ML, CX, KG">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Descrição</label>
+                            <input type="text" class="form-control" id="muc_descricao" value="${escapeHtml(unidade?.descricao || '')}">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Fator de conversão → base *</label>
+                            <input type="number" step="0.000001" min="0.000001" class="form-control" id="muc_fator" value="${unidade?.fator_conversao != null ? unidade.fator_conversao : '1'}">
+                            <small class="text-muted">Ex.: 1 mL = 0,001 L → fator 0.001</small>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Preço</label>
+                            <input type="number" step="0.01" min="0" class="form-control" id="muc_preco" value="${unidade?.preco != null ? unidade.preco : '0'}">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Código de barras</label>
+                            <input type="text" class="form-control" id="muc_barras" value="${escapeHtml(unidade?.codigo_barras || '')}">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Código auxiliar</label>
+                            <input type="text" class="form-control" id="muc_auxiliar" value="${escapeHtml(unidade?.codigo_auxiliar || '')}">
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="muc_principal" ${Number(unidade?.principal) === 1 ? 'checked' : ''}>
+                            <label class="form-check-label" for="muc_principal">Unidade principal</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="muc_ativo" ${!isEdit || Number(unidade?.ativo) === 1 ? 'checked' : ''}>
+                            <label class="form-check-label" for="muc_ativo">Ativa</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-primary" id="btnSalvarUnidadeMuc">Salvar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    $('body').append(html);
+    const modal = new bootstrap.Modal(document.getElementById('modalUnidadeMucEditor'));
+    modal.show();
+
+    $('#btnSalvarUnidadeMuc').off('click').on('click', function () {
+        const produtoId = window._mucProdutoIdAtual;
+        const payload = {
+            unidade: $('#muc_unidade').val(),
+            descricao: $('#muc_descricao').val(),
+            fator_conversao: Number($('#muc_fator').val()),
+            preco: Number($('#muc_preco').val()),
+            codigo_barras: $('#muc_barras').val(),
+            codigo_auxiliar: $('#muc_auxiliar').val(),
+            principal: $('#muc_principal').is(':checked') ? 1 : 0,
+            ativo: $('#muc_ativo').is(':checked') ? 1 : 0
+        };
+
+        const req = isEdit
+            ? $.ajax({ url: `${API_URL}/produtos/${produtoId}/unidades/${unidade.id}`, method: 'PUT', contentType: 'application/json', data: JSON.stringify(payload) })
+            : $.ajax({ url: `${API_URL}/produtos/${produtoId}/unidades`, method: 'POST', contentType: 'application/json', data: JSON.stringify(payload) });
+
+        req.done(() => {
+            modal.hide();
+            carregarGradeUnidadesMuc(produtoId);
+            showNotification('Unidade comercial salva.', 'success');
+        }).fail((xhr) => {
+            showNotification(xhr.responseJSON?.error || 'Erro ao salvar unidade.', 'danger');
+        });
+    });
+
+    document.getElementById('modalUnidadeMucEditor').addEventListener('hidden.bs.modal', () => {
+        $('#modalUnidadeMucEditor').remove();
+    }, { once: true });
+}
+
+function marcarPrincipalUnidadeMuc(unidadeId) {
+    const produtoId = window._mucProdutoIdAtual;
+    $.post(`${API_URL}/produtos/${produtoId}/unidades/${unidadeId}/principal`)
+        .done(() => {
+            carregarGradeUnidadesMuc(produtoId);
+            showNotification('Unidade principal definida.', 'success');
+        })
+        .fail((xhr) => showNotification(xhr.responseJSON?.error || 'Erro ao definir principal.', 'danger'));
+}
+
+function excluirUnidadeMuc(unidadeId) {
+    if (!confirm('Excluir esta unidade comercial?')) return;
+    const produtoId = window._mucProdutoIdAtual;
+    $.ajax({ url: `${API_URL}/produtos/${produtoId}/unidades/${unidadeId}`, method: 'DELETE' })
+        .done(() => {
+            carregarGradeUnidadesMuc(produtoId);
+            showNotification('Unidade excluída.', 'success');
+        })
+        .fail((xhr) => showNotification(xhr.responseJSON?.error || 'Erro ao excluir.', 'danger'));
+}
+
 window.carregarVencimentosProdutos = carregarVencimentosProdutos;
 window.abrirModalVencimentosProdutos = abrirModalVencimentosProdutos;
 window.fecharModalVencimentosProdutos = fecharModalVencimentosProdutos;
+window.abrirModalEditarUnidadeMuc = abrirModalEditarUnidadeMuc;
+window.editarUnidadeMucPorId = editarUnidadeMucPorId;
+window.marcarPrincipalUnidadeMuc = marcarPrincipalUnidadeMuc;
+window.excluirUnidadeMuc = excluirUnidadeMuc;

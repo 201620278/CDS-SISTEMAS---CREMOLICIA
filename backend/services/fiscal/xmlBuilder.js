@@ -446,6 +446,7 @@ function gtinValido(codigo) {
 
 function obterEANFiscal(produto) {
   const codigo = String(
+    produto?.codigo_barras_comercial ||
     produto?.codigo_barras ||
     produto?.codigo_barra ||
     produto?.ean ||
@@ -464,7 +465,21 @@ function obterEANFiscal(produto) {
   return codigo;
 }
 
+function itemUsaUnidadeComercialMuc(item = {}) {
+  return Boolean(item.unidade_comercial_id || item.unidade_comercial);
+}
+
 function obterQuantidadeFiscalItem(item = {}) {
+  if (itemUsaUnidadeComercialMuc(item)) {
+    const qCom = Number(item.quantidade || 0);
+    const qFisc = Number(item.quantidade_fiscal || 0);
+    const qNao = Number(item.quantidade_nao_fiscal || 0);
+    const qBase = qFisc + qNao;
+    if (qBase > 0 && qNao > 0) {
+      return qCom * (qFisc / qBase);
+    }
+    return qCom;
+  }
   return Number(item.quantidade_fiscal ?? 0);
 }
 
@@ -473,6 +488,10 @@ function obterValorFiscalItem(item = {}) {
 }
 
 function obterPrecoUnitarioFiscalItem(item = {}) {
+  if (itemUsaUnidadeComercialMuc(item)) {
+    const preco = Number(item.preco_unitario || 0);
+    if (preco > 0) return preco;
+  }
   const quantidade = obterQuantidadeFiscalItem(item);
   const valor = obterValorFiscalItem(item);
   if (quantidade > 0 && valor > 0) {
@@ -661,7 +680,9 @@ function buildNfceXml({ config, venda, itens, numero }) {
     const tagCEST = cestLimpo.length === 7
       ? `<CEST>${cestLimpo}</CEST>`
       : '';
-    const unidade = normalizarUnidadeComercialFiscal(item.unidade || item.produto_unidade || 'UN');
+    const unidade = normalizarUnidadeComercialFiscal(
+      item.unidade_comercial || item.unidade || item.produto_unidade || 'UN'
+    );
     const xProd = Number(config.ambiente) === 2 && idx === 0
       ? descricaoHomologacao
       : item.produto_nome || 'PRODUTO';

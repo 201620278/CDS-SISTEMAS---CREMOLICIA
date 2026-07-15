@@ -5,14 +5,113 @@
  */
 
 const { formatDocumento } = require('../../api/helpers');
+const {
+  buildFinanceiroFromResumo,
+  labelSituacaoFinanceira
+} = require('./prestacaoFinanceiroSnapshot');
 
+/** STAB-07.1 — fluxo operacional: Retornos → Resumo Final (+ Encerramento pós-sucesso). */
 const MOMENTOS_FECHAMENTO = [
-  { key: 'conferir', label: 'Conferir Produtos' },
   { key: 'retornos', label: 'Registrar Retornos' },
-  { key: 'pagamento', label: 'Pagamento' },
-  { key: 'conferencia', label: 'Conferência Final' },
+  { key: 'conferencia', label: 'Resumo Final' },
   { key: 'encerramento', label: 'Encerramento' }
 ];
+
+const STEP_RETORNOS = 0;
+const STEP_RESUMO = 1;
+const STEP_ENCERRAMENTO = 2;
+
+/** STAB-06.6.1 — placeholder proibido em produção. */
+const PRODUTO_NAO_LOCALIZADO = '⚠ Produto não localizado';
+const PLACEHOLDER_PRODUTO_RE = /^(Produto|Item)\s*#/i;
+
+function _logProdutoNaoLocalizado(_item = {}) {
+  /* silenciado pós-RC1 — UI já exibe ⚠ Produto não localizado */
+}
+
+function resolverProdutoNome(item = {}) {
+  const candidatos = [
+    item.produtoNome,
+    item.produto,
+    item.descricao,
+    item.nome
+  ];
+  for (const raw of candidatos) {
+    if (raw == null) continue;
+    const nome = String(raw).trim();
+    if (!nome) continue;
+    if (PLACEHOLDER_PRODUTO_RE.test(nome)) continue;
+    if (nome === PRODUTO_NAO_LOCALIZADO) continue;
+    if (nome.startsWith('⚠')) continue;
+    return nome;
+  }
+  return null;
+}
+
+/**
+ * Objeto canônico ItemConsignacao da Prestação (SSOT de apresentação).
+ * Todos os componentes da grade devem consumir este shape.
+ */
+function mapItemConsignacao(item = {}) {
+  const produtoNome = resolverProdutoNome(item);
+  if (!produtoNome) _logProdutoNaoLocalizado(item);
+
+  const quantidadeEntregue = Number(
+    item.quantidadeEntregue ?? item.enviado ?? item.quantidade ?? 0
+  );
+  const quantidadeVendida = Number(item.quantidadeVendida ?? item.vendido ?? 0);
+  const quantidadeDevolvida = Number(item.quantidadeDevolvida ?? item.devolvido ?? 0);
+  const quantidadePerdida = Number(
+    item.quantidadePerdida ?? item.quantidadePerda ?? item.perdido ?? 0
+  );
+  const quantidadeCortesia = Number(item.quantidadeCortesia ?? item.cortesia ?? 0);
+  const valorUnitario = Number(
+    item.valorUnitario ?? item.precoUnitario ?? item.preco ?? 0
+  );
+  const saldo = Number.isFinite(Number(item.saldo))
+    ? Math.max(0, Number(item.saldo))
+    : Math.max(
+      0,
+      quantidadeEntregue - quantidadeVendida - quantidadeDevolvida
+        - quantidadePerdida - quantidadeCortesia
+    );
+  const status = item.status
+    || (saldo > 0 ? 'PENDENTE' : 'LIQUIDADO');
+  const statusLabel = item.statusLabel
+    || (status === 'LIQUIDADO' ? 'Liquidado' : 'Pendente');
+  const displayNome = produtoNome || PRODUTO_NAO_LOCALIZADO;
+
+  return {
+    itemId: item.itemId ?? item.id ?? null,
+    id: item.id ?? item.itemId ?? null,
+    produtoId: item.produtoId ?? item.produto_id ?? null,
+    produtoNome: displayNome,
+    produto: displayNome,
+    codigo: item.codigo ?? null,
+    unidade: item.unidade ?? 'UN',
+    valorUnitario,
+    precoUnitario: valorUnitario,
+    preco: valorUnitario,
+    quantidadeEntregue,
+    quantidadeVendida,
+    quantidadeDevolvida,
+    quantidadePerdida,
+    quantidadePerda: quantidadePerdida,
+    quantidadeCortesia,
+    // aliases da grade (compat)
+    enviado: quantidadeEntregue,
+    vendido: quantidadeVendida,
+    devolvido: quantidadeDevolvida,
+    perdido: quantidadePerdida,
+    cortesia: quantidadeCortesia,
+    saldo,
+    status,
+    statusLabel,
+    observacao: item.observacao != null ? String(item.observacao) : '',
+    dirty: Boolean(item.dirty),
+    dirtyCampos: item.dirtyCampos || {}
+  };
+}
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('pt-BR', {
@@ -72,53 +171,43 @@ function coletarItensComRascunho(itens = [], rootSelector = '#fechar-retornos-gr
   });
 }
 
-function buildPainelLateralPreview(resumo = {}, itens = []) {
+/**
+ * Totais operacionais da grade (quantidades) — não é financeiro.
+ */
+function buildPainelOperacional(itens = []) {
   const totais = calcularTotaisItens(itens);
-  const valorVendido = calcularValorVendidoItens(itens);
-  const valorRecebido = Number(resumo.valorRecebido ?? resumo.recebimentos ?? 0);
-  const saldoFinal = valorVendido - valorRecebido;
-
   return {
     produtosVendidos: totais.vendidos,
     produtosDevolvidos: totais.devolvidos,
     perdas: totais.perdas,
     cortesias: totais.cortesias,
-    valorTotal: valorVendido,
-    valorRecebido,
-    saldoFinal,
-    saldoDevedor: saldoFinal > 0 ? saldoFinal : 0,
-    saldoCredor: saldoFinal < 0 ? Math.abs(saldoFinal) : 0,
-    pendentes: totais.pendentes,
-    preview: true
+    pendentes: totais.pendentes
   };
 }
 
-function buildPainelLateral(resumo = {}, itens = []) {
-  const totais = calcularTotaisItens(itens);
-  const valorVendidoItens = calcularValorVendidoItens(itens);
-  const valorVendidoResumo = Number(resumo.valorVendido ?? resumo.totalVendido ?? resumo.valorTotal ?? 0);
-  const valorVendido = valorVendidoResumo > 0 ? valorVendidoResumo : valorVendidoItens;
-  const valorRecebido = Number(resumo.valorRecebido ?? resumo.totalPago ?? resumo.recebimentos ?? 0);
-  const saldoResumo = Number(resumo.saldoAtual ?? resumo.saldo);
-  const saldoCalculado = valorVendido - valorRecebido;
-  // Com venda/recebimento conhecidos, prioriza o cálculo local (evita saldo 0 “fantasma” da projeção)
-  const saldoFinal = (valorVendido > 0 || valorRecebido > 0)
-    ? saldoCalculado
-    : (Number.isFinite(saldoResumo) ? saldoResumo : saldoCalculado);
-
+/**
+ * Painel lateral: operacional + SSOT financeiro (STAB-06.6.2).
+ * Dinheiro vem exclusivamente de `financeiro` / resumo normalizado — sem Σ itens.
+ */
+function buildPainelLateral(resumo = {}, itens = [], financeiro = null) {
+  const operacional = buildPainelOperacional(itens);
+  const fin = financeiro || buildFinanceiroFromResumo(resumo);
   return {
-    produtosVendidos: totais.vendidos,
-    produtosDevolvidos: totais.devolvidos,
-    perdas: totais.perdas,
-    cortesias: totais.cortesias,
-    valorTotal: valorVendido,
-    valorRecebido,
-    saldoFinal,
-    valorAPagar: saldoFinal > 0 ? saldoFinal : 0,
-    saldoDevedor: saldoFinal > 0 ? saldoFinal : 0,
-    saldoCredor: saldoFinal < 0 ? Math.abs(saldoFinal) : 0,
-    pendentes: totais.pendentes
+    ...operacional,
+    financeiro: fin,
+    // chaves oficiais espelhadas para o painel (sem aliases legados)
+    valorVenda: fin.valorVenda,
+    valorRecebido: fin.valorRecebido,
+    saldoEmAberto: fin.saldoEmAberto,
+    situacaoFinanceira: fin.situacaoFinanceira,
+    preview: false
   };
+}
+
+/** Preview só de quantidades — financeiro permanece o do snapshot (não recalcula R$). */
+function buildPainelLateralPreview(resumo = {}, itens = [], financeiro = null) {
+  const painel = buildPainelLateral(resumo, itens, financeiro);
+  return { ...painel, preview: true };
 }
 
 function mergeItensRetornos(servidor = [], rascunho = []) {
@@ -166,9 +255,10 @@ function buildItensFromMovimentacoes(movimentacoes = [], grupoPrestacaoId = null
     if (!porItem.has(key)) {
       porItem.set(key, {
         itemId: mov.consignacaoItemId || itemSnap.id || null,
+        id: mov.consignacaoItemId || itemSnap.id || null,
         produtoId: itemSnap.produtoId || null,
-        produto: snap.produtoNome || itemSnap.produtoNome || snap.produto
-          || (itemSnap.produtoId ? `Produto #${itemSnap.produtoId}` : `Item #${key}`),
+        produtoNome: snap.produtoNome || itemSnap.produtoNome || snap.produto || null,
+        produto: snap.produtoNome || itemSnap.produtoNome || snap.produto || null,
         enviado: 0,
         vendido: 0,
         devolvido: 0,
@@ -209,27 +299,26 @@ function buildItensFromMovimentacoes(movimentacoes = [], grupoPrestacaoId = null
   });
 
   return [...porItem.values()]
-    .map((item) => ({
-      ...item,
-      saldo: Math.max(0, item.enviado - item.vendido - item.devolvido - item.perdido - item.cortesia)
+    .map((item) => mapItemConsignacao({
+      itemId: item.itemId,
+      id: item.id || item.itemId,
+      produtoId: item.produtoId,
+      produtoNome: item.produtoNome || item.produto,
+      produto: item.produtoNome || item.produto,
+      quantidadeEntregue: item.enviado,
+      quantidadeVendida: item.vendido,
+      quantidadeDevolvida: item.devolvido,
+      quantidadePerdida: item.perdido,
+      quantidadeCortesia: item.cortesia,
+      valorUnitario: item.preco,
+      observacao: item.observacao || ''
+      // saldo recalculado em mapItemConsignacao
     }))
     .filter((item) => item.enviado > 0 || item.vendido > 0 || item.devolvido > 0 || item.perdido > 0 || item.cortesia > 0);
 }
 
 function mapItensCacheParaPrestacao(itens = []) {
-  return itens.map((item) => ({
-    itemId: item.itemId || item.id || null,
-    produtoId: item.produtoId,
-    produto: item.produto || item.produtoNome || `Produto #${item.produtoId || '—'}`,
-    enviado: Number(item.quantidade || item.enviado || 0),
-    vendido: Number(item.vendido || 0),
-    devolvido: Number(item.devolvido || 0),
-    perdido: Number(item.perdido || 0),
-    cortesia: Number(item.cortesia || 0),
-    saldo: Number(item.saldo ?? item.quantidade ?? 0),
-    preco: Number(item.preco || item.precoUnitario || 0),
-    observacao: item.observacao || ''
-  }));
+  return (itens || []).map((item) => mapItemConsignacao(item));
 }
 
 function consignacaoElegivelParaPrestacao(consignacao = {}) {
@@ -258,7 +347,7 @@ function resolveClienteNome(consignacao = {}, clienteDetalhe = null) {
   if (candidatos.length) return String(candidatos[0]).trim();
 
   const id = consignacao.clienteId || clienteDetalhe?.id;
-  return id ? `Cliente #${id}` : '—';
+  return id ? '⚠ Cliente não identificado' : '—';
 }
 
 function calcularValorEntregue(consignacao = {}, resumo = {}, itens = []) {
@@ -291,7 +380,7 @@ function buildResumoEntrega(consignacao = {}, resumo = {}, clienteDetalhe = null
   };
 }
 
-function getOperadorNomeLocal() {
+function getOperadorNomeLocal() { // exported STAB-07.4
   if (typeof localStorage === 'undefined') return '—';
   try {
     const user = JSON.parse(localStorage.getItem('user') || 'null');
@@ -308,6 +397,7 @@ function getOperadorNomeLocal() {
 function buildCentralEncerramento({
   consignacao = {},
   resumo = {},
+  financeiro = null,
   painel = null,
   clienteDetalhe = null,
   dataEncerramento = new Date()
@@ -315,15 +405,16 @@ function buildCentralEncerramento({
   const itens = (Array.isArray(resumo.itens) && resumo.itens.length)
     ? resumo.itens
     : (consignacao.itens || []);
-  const painelCalc = painel || buildPainelLateral(resumo, itens);
+  // STAB-06.6.2 — financeiro só do snapshot; sem recalcular
+  const fin = financeiro
+    || painel?.financeiro
+    || buildFinanceiroFromResumo(resumo);
   const totais = calcularTotaisItens(itens);
   const qtdEntregue = itens.reduce(
     (sum, item) => sum + Number(item.enviado ?? item.quantidade ?? 0),
     0
   );
-  const saldoDevedor = Number(painelCalc.saldoDevedor || 0);
-  const saldoCredor = Number(painelCalc.saldoCredor || 0);
-  const quitado = saldoDevedor <= 0;
+  const quitado = Number(fin.saldoEmAberto || 0) <= 0.01;
   const clienteId = consignacao.clienteId || clienteDetalhe?.id || null;
   const endereco = clienteDetalhe?.endereco || consignacao.cliente?.endereco || {};
   const cidade = clienteDetalhe?.cidade
@@ -356,16 +447,17 @@ function buildCentralEncerramento({
       perdas: totais.perdas,
       cortesias: totais.cortesias,
       quantidadeVendida: totais.vendidos,
-      valorVendido: Number(painelCalc.valorTotal || 0)
+      valorVenda: Number(fin.valorVenda || 0)
     },
     financeiro: {
+      valorVenda: Number(fin.valorVenda || 0),
+      valorRecebido: Number(fin.valorRecebido || 0),
+      saldoEmAberto: Number(fin.saldoEmAberto || 0),
+      situacaoFinanceira: fin.situacaoFinanceira,
+      situacaoFinanceiraLabel: labelSituacaoFinanceira(fin.situacaoFinanceira),
       valorEntrega: calcularValorEntregue(consignacao, resumo, itens),
-      valorDevido: Number(painelCalc.valorTotal || 0),
-      valorRecebido: Number(painelCalc.valorRecebido || 0),
-      saldoDevedor,
-      saldoCredor,
       quitado,
-      situacaoLabel: quitado ? 'Quitado' : 'Cliente possui saldo devedor',
+      situacaoLabel: quitado ? 'Quitado' : 'Cliente possui saldo em aberto',
       situacaoNivel: quitado ? 'success' : 'warning',
       contaCorrenteInfo: quitado
         ? null
@@ -377,34 +469,34 @@ function buildCentralEncerramento({
       mostrarContaCorrente: false,
       mostrarRecebimento: !quitado,
       mostrarVoltarCentral: true,
-      saldoRecebimento: saldoDevedor
+      saldoRecebimento: Number(fin.saldoEmAberto || 0)
     }
   };
 }
 
-function buildResumoFinalOficial(resumo = {}, itens = [], painel = null, faturamento = null) {
-  const p = painel || buildPainelLateral(resumo, itens);
-  const valorVenda = Number(p.valorTotal || 0);
-  const valorRecebido = Number(p.valorRecebido || 0);
-  const saldo = Math.round((valorVenda - valorRecebido) * 100) / 100;
-  const integro = Math.abs(valorVenda - (valorRecebido + Math.max(0, saldo))) <= 0.01;
+/**
+ * Resumo Final — lê snapshot.financeiro; não recalcula valores.
+ */
+function buildResumoFinalOficial(resumoOrOpts = {}, itens = [], painel = null, faturamento = null) {
+  let financeiro;
+  let fat = faturamento;
 
-  let situacaoFinanceira = 'SEM_VENDA';
-  let situacaoFinanceiraLabel = 'Sem Venda';
-  if (valorVenda > 0.01) {
-    if (saldo <= 0.01) {
-      situacaoFinanceira = 'QUITADA';
-      situacaoFinanceiraLabel = 'Quitada';
-    } else if (valorRecebido <= 0.01) {
-      situacaoFinanceira = 'EM_ABERTO';
-      situacaoFinanceiraLabel = 'Em Aberto';
-    } else {
-      situacaoFinanceira = 'PARCIALMENTE_RECEBIDA';
-      situacaoFinanceiraLabel = 'Parcialmente Recebida';
-    }
+  if (resumoOrOpts && resumoOrOpts.financeiro) {
+    financeiro = resumoOrOpts.financeiro;
+    fat = resumoOrOpts.faturamento || fat || null;
+  } else {
+    financeiro = painel?.financeiro || buildFinanceiroFromResumo(resumoOrOpts || {});
   }
 
-  const fat = faturamento || {};
+  const valorVenda = Number(financeiro.valorVenda || 0);
+  const valorRecebido = Number(financeiro.valorRecebido || 0);
+  const saldoEmAberto = Number(financeiro.saldoEmAberto || 0);
+  const situacaoFinanceira = financeiro.situacaoFinanceira
+    || buildFinanceiroFromResumo({ valorVenda, valorRecebido, saldoEmAberto }).situacaoFinanceira;
+  const situacaoFinanceiraLabel = labelSituacaoFinanceira(situacaoFinanceira);
+  const integro = Math.abs(valorVenda - (valorRecebido + saldoEmAberto)) <= 0.01;
+
+  fat = fat || {};
   const situacaoFiscal = String(fat.situacaoFiscal || 'PENDENTE').toUpperCase();
   let situacaoFiscalLabel = 'Ainda não emitida';
   if (situacaoFiscal === 'AUTORIZADA') {
@@ -417,14 +509,16 @@ function buildResumoFinalOficial(resumo = {}, itens = [], painel = null, faturam
     situacaoFiscalLabel = 'Emissão não aplicável (somente não fiscal)';
   }
 
-  const exigeNfce = valorVenda > 0.01 && situacaoFiscal !== 'NAO_APLICAVEL';
-  const podeEncerrar = !exigeNfce || fat.podeEncerrarFiscal === true || situacaoFiscal === 'AUTORIZADA';
-  const podeEmitir = exigeNfce && fat.podeEmitir !== false && situacaoFiscal !== 'AUTORIZADA';
+  // NFC-e é opcional: operador pode encerrar sem emitir.
+  const exigeNfce = false;
+  const podeEmitirNfce = valorVenda > 0.01 && situacaoFiscal !== 'NAO_APLICAVEL';
+  const podeEncerrar = true;
+  const podeEmitir = podeEmitirNfce && fat.podeEmitir !== false && situacaoFiscal !== 'AUTORIZADA';
 
   return {
     valorVenda,
     valorRecebido,
-    saldoEmAberto: Math.max(0, saldo),
+    saldoEmAberto,
     situacaoFinanceira,
     situacaoFinanceiraLabel,
     situacaoFiscal,
@@ -436,23 +530,23 @@ function buildResumoFinalOficial(resumo = {}, itens = [], painel = null, faturam
     podeEncerrar,
     podeEmitir,
     integro,
-    emitiraNfce: valorVenda > 0.01 && situacaoFiscal !== 'AUTORIZADA' && situacaoFiscal !== 'NAO_APLICAVEL',
+    emitiraNfce: false,
     avisos: [
       situacaoFiscal === 'AUTORIZADA'
         ? situacaoFiscalLabel
         : valorVenda > 0.01
           ? (situacaoFiscal === 'NAO_APLICAVEL'
             ? situacaoFiscalLabel
-            : `Será emitida NFC-e sobre ${formatCurrency(valorVenda)}`)
+            : `NFC-e opcional sobre ${formatCurrency(valorVenda)} — pode encerrar sem emitir`)
           : 'Sem valor de venda consignada nesta prestação',
-      Math.max(0, saldo) > 0.01
-        ? `Será criado saldo financeiro de ${formatCurrency(Math.max(0, saldo))}`
-        : 'Sem saldo financeiro pendente'
+      saldoEmAberto > 0.01
+        ? `Saldo em aberto de ${formatCurrency(saldoEmAberto)}`
+        : 'Sem saldo em aberto'
     ]
   };
 }
 
-function buildValidacoesFinais(resumo = {}, itens = [], painel = {}) {
+function buildValidacoesFinais(resumo = {}, itens = [], painel = {}, financeiro = null) {
   const avisos = [];
 
   if (!itens.length) {
@@ -466,20 +560,20 @@ function buildValidacoesFinais(resumo = {}, itens = [], painel = {}) {
     });
   }
 
-  const saldo = Number(resumo.saldoAtual ?? resumo.saldo ?? 0);
-  const recebido = Number(resumo.valorRecebido ?? 0);
-  const vendido = Number(resumo.valorVendido ?? 0);
+  const fin = financeiro
+    || painel?.financeiro
+    || buildFinanceiroFromResumo(resumo);
 
-  if (vendido > 0 && recebido === 0 && saldo > 0) {
+  if (fin.valorVenda > 0 && fin.valorRecebido === 0 && fin.saldoEmAberto > 0) {
     avisos.push({
       message: 'Existem vendas registradas sem pagamento correspondente',
       nivel: 'warning'
     });
   }
 
-  if (saldo > 0) {
+  if (fin.saldoEmAberto > 0) {
     avisos.push({
-      message: `Saldo devedor de ${formatCurrency(saldo)} — confira o pagamento`,
+      message: `Saldo em aberto de ${formatCurrency(fin.saldoEmAberto)} — confira o pagamento`,
       nivel: 'warning'
     });
   }
@@ -491,12 +585,12 @@ function inicializarMomentos(jaEncerrado = false) {
   if (jaEncerrado) {
     return MOMENTOS_FECHAMENTO.map((m, i) => ({
       ...m,
-      state: i < 4 ? 'completed' : 'current'
+      state: i < STEP_ENCERRAMENTO ? 'completed' : 'current'
     }));
   }
   return MOMENTOS_FECHAMENTO.map((m, i) => ({
     ...m,
-    state: i === 0 ? 'current' : 'pending'
+    state: i === STEP_RETORNOS ? 'current' : 'pending'
   }));
 }
 
@@ -595,15 +689,24 @@ function possuiVendasPendentes(pendencias = []) {
   return pendencias.some((p) => ['venda', 'perda', 'cortesia'].includes(p.tipo));
 }
 
+// STAB-07.4 — ordem visual dos cards (Vendido → Devolvido → …)
 const CAMPOS_RETORNO_ORDEM = ['devolvido', 'vendido', 'perdido', 'cortesia', 'observacao'];
 
 function calcularSaldoItem(item = {}) {
-  const enviado = Number(item.enviado ?? item.quantidade ?? 0);
-  const registrado = Number(item.vendido || 0)
-    + Number(item.devolvido || 0)
-    + Number(item.perdido || 0)
-    + Number(item.cortesia || 0);
+  const enviado = Number(item.enviado ?? item.quantidadeEntregue ?? item.quantidade ?? 0);
+  const registrado = Number(item.vendido || item.quantidadeVendida || 0)
+    + Number(item.devolvido || item.quantidadeDevolvida || 0)
+    + Number(item.perdido || item.quantidadePerdida || item.quantidadePerda || 0)
+    + Number(item.cortesia || item.quantidadeCortesia || 0);
   return Math.max(0, enviado - registrado);
+}
+
+function syncStatusOperacional(item = {}) {
+  const saldo = calcularSaldoItem(item);
+  item.saldo = saldo;
+  item.status = saldo > 0 ? 'PENDENTE' : 'LIQUIDADO';
+  item.statusLabel = item.status === 'LIQUIDADO' ? 'Liquidado' : 'Pendente';
+  return item;
 }
 
 function enriquecerItensPrestacao(itens = [], consignacaoItens = []) {
@@ -631,24 +734,25 @@ function enriquecerItensPrestacao(itens = [], consignacaoItens = []) {
       ref = consignacaoItens[0];
     }
 
-    const produtoIdFinal = Number(ref?.produtoId ?? item.produtoId) || null;
-    const itemIdFinal = Number(ref?.id ?? ref?.itemId ?? item.itemId ?? item.id) || null;
-    const preco = Number(item.preco ?? item.precoUnitario ?? ref?.precoUnitario ?? ref?.preco ?? 0);
-
-    const normalizado = {
+    const merged = mapItemConsignacao({
       ...item,
-      itemId: itemIdFinal,
-      produtoId: produtoIdFinal,
-      preco,
-      enviado: Number(item.enviado ?? item.quantidade ?? ref?.quantidade ?? ref?.enviado ?? 0),
-      vendido: Number(item.vendido || 0),
-      devolvido: Number(item.devolvido || 0),
-      perdido: Number(item.perdido || 0),
-      cortesia: Number(item.cortesia || 0),
-      observacao: item.observacao || ''
-    };
-    normalizado.saldo = calcularSaldoItem(normalizado);
-    return normalizado;
+      ...(ref || {}),
+      // qtds da grade prevalecem sobre o snapshot da consignação
+      quantidadeVendida: item.quantidadeVendida ?? item.vendido ?? ref?.quantidadeVendida,
+      quantidadeDevolvida: item.quantidadeDevolvida ?? item.devolvido ?? ref?.quantidadeDevolvida,
+      quantidadePerdida: item.quantidadePerdida ?? item.quantidadePerda ?? item.perdido
+        ?? ref?.quantidadePerdida,
+      quantidadeCortesia: item.quantidadeCortesia ?? item.cortesia ?? ref?.quantidadeCortesia,
+      quantidadeEntregue: item.quantidadeEntregue ?? item.enviado ?? item.quantidade
+        ?? ref?.quantidadeEntregue ?? ref?.quantidade,
+      produtoNome: resolverProdutoNome(item) || resolverProdutoNome(ref || {}),
+      observacao: item.observacao != null && item.observacao !== ''
+        ? item.observacao
+        : (ref?.observacao ?? ''),
+      dirty: item.dirty,
+      dirtyCampos: item.dirtyCampos
+    });
+    return syncStatusOperacional(merged);
   });
 }
 
@@ -676,7 +780,8 @@ function buildPayloadOperacao(item = {}, delta = 0, tipo = '') {
   }
 
   if (tipo === 'devolucao') {
-    payload.observacao = item.observacao || `Devolução — ${item.produto || 'item'}`;
+    const nome = resolverProdutoNome(item) || 'item';
+    payload.observacao = item.observacao || `Devolução — ${nome}`;
   }
 
   return payload;
@@ -713,6 +818,11 @@ function proximoCampoRetorno(campoAtual, direcao = 1) {
 
 module.exports = {
   MOMENTOS_FECHAMENTO,
+  STEP_RETORNOS,
+  STEP_RESUMO,
+  STEP_ENCERRAMENTO,
+  PRODUTO_NAO_LOCALIZADO,
+  PLACEHOLDER_PRODUTO_RE,
   formatCurrency,
   formatDate,
   formatDateTime,
@@ -721,13 +831,17 @@ module.exports = {
   coletarItensComRascunho,
   seletorLinhaRetorno,
   LINHA_RETORNO_SELECTOR,
+  buildPainelOperacional,
   buildPainelLateralPreview,
   mergeItensRetornos,
   normalizarMovimentacoes,
   buildItensFromMovimentacoes,
   mapItensCacheParaPrestacao,
+  mapItemConsignacao,
+  resolverProdutoNome,
   consignacaoElegivelParaPrestacao,
   resolveClienteNome,
+  getOperadorNomeLocal,
   calcularValorEntregue,
   buildPainelLateral,
   buildResumoEntrega,
@@ -742,6 +856,7 @@ module.exports = {
   mensagemErroOperacional,
   possuiVendasPendentes,
   calcularSaldoItem,
+  syncStatusOperacional,
   enriquecerItensPrestacao,
   buildPayloadOperacao,
   validarPayloadOperacao,

@@ -210,7 +210,7 @@ function carregarJanelaComRobustez(window, url, timeout = 20000) {
   });
 }
 
-function aguardarListening(server, timeout = 15000) {
+function aguardarListening(server, timeout = 60000) {
   return new Promise((resolve, reject) => {
     if (!server) {
       reject(new Error('Servidor backend não foi inicializado.'));
@@ -276,6 +276,7 @@ function iniciarBackendLocal(tituloJanela) {
     .then((server) => {
       const address = server.address();
       const portaReal = address && typeof address === 'object' ? address.port : obterPortaServidor();
+      console.log('[BOOTSTRAP] Banco, migrations, configurações e SUPER_ADMIN prontos. Abrindo Login.');
       return createWindow(portaReal, tituloJanela);
     });
 }
@@ -654,6 +655,7 @@ function iniciarAplicacaoElectron(options = {}) {
         .then((server) => {
           const address = server.address();
           const portaReal = address && typeof address === 'object' ? address.port : obterPortaServidor();
+          console.log('[BOOTSTRAP] Banco, migrations, configurações e SUPER_ADMIN prontos. Abrindo Login.');
           createWindow(portaReal, tituloJanela);
         })
         .catch((error) => {

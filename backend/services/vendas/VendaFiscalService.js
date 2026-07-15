@@ -193,73 +193,19 @@ async function responderVendaComFiscal(res, payload) {
     });
   }
 
-  try {
-    mark('ANTES await emitirPorVendaId — ponto crítico (SOAP SEFAZ até 90s)');
-    const fiscal = await emitirPorVendaId(payload.vendaId);
-    mark(`DEPOIS emitirPorVendaId status=${fiscal?.status || fiscal?.success}`);
-
-    if (fiscal?.status === 'sem_itens_fiscais') {
-      return res.json({
-        ...respostaBase,
-        fiscal
-      });
+  // NFC-e NÃO bloqueia o POST /vendas.
+  // A venda já foi COMMIT antes desta função; o PDV emite em
+  // POST /fiscal/emitir/venda/:id (timeout dedicado + modal de reemissão).
+  // Antes: await emitirPorVendaId aqui → UI congelada até ~183s (SOAP 90s × 2)
+  // e ReferenceError em catch (transacoesTefAutorizadas) podia travar a resposta.
+  mark('res.json imediato — NFC-e assíncrona via endpoint dedicado');
+  return res.json({
+    ...respostaBase,
+    fiscal: {
+      status: 'pendente_emissao',
+      message: 'Venda registrada. Emitindo NFC-e...'
     }
-
-    // Vincular NFC-e às transações TEF autorizadas (se houver)
-    // As transações TEF já foram processadas antes de gravar a venda
-    // Aqui apenas vinculamos à NFC-e se necessário
-    if (fiscal.success && fiscal.numero && fiscal.chave) {
-      // Buscar transações TEF da venda para vincular
-      db.all(`
-        SELECT tef_transacao_id FROM venda_recebimentos
-        WHERE venda_id = ? AND tef_transacao_id IS NOT NULL
-      `, [payload.vendaId], async (err, rows) => {
-        if (err) {
-          console.error('Erro ao buscar transações TEF:', err);
-          return;
-        }
-
-        for (const row of rows) {
-          try {
-            await tefManager.vincularNfce(row.tef_transacao_id, fiscal.numero, fiscal.chave);
-            console.log(`NFC-e ${fiscal.numero} vinculada à transação TEF ${row.tef_transacao_id}`);
-          } catch (vincError) {
-            console.error(`Erro ao vincular NFC-e à transação TEF ${row.tef_transacao_id}:`, vincError);
-          }
-        }
-      });
-    }
-    
-    mark('res.json após NFC-e');
-    res.json({
-      ...respostaBase,
-      fiscal
-    });
-  } catch (error) {
-    console.error('Erro ao emitir NFC-e:', error);
-    mark(`erro emitirPorVendaId: ${error.message}`);
-    
-    // Reverter pagamentos TEF autorizados
-    if (transacoesTefAutorizadas.length > 0) {
-      for (const transacaoId of transacoesTefAutorizadas) {
-        try {
-          await tefManager.cancelar(transacaoId, 'Falha na emissão NFC-e');
-          console.log(`Transação TEF ${transacaoId} cancelada devido a falha na NFC-e`);
-        } catch (cancelError) {
-          console.error(`Erro ao cancelar transação TEF ${transacaoId}:`, cancelError);
-        }
-      }
-    }
-
-    res.json({
-      ...respostaBase,
-      fiscal: {
-        success: false,
-        status: 'erro_emissao',
-        message: error.message
-      }
-    });
-  }
+  });
 }
 
 module.exports = {

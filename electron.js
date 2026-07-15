@@ -272,7 +272,7 @@ function carregarJanelaComRobustez(window, url, timeout = 20000) {
   });
 }
 
-function aguardarListening(server, timeout = 15000) {
+function aguardarListening(server, timeout = 60000) {
   return new Promise((resolve, reject) => {
     if (!server) {
       reject(new Error('Servidor backend não foi inicializado.'));
@@ -286,7 +286,7 @@ function aguardarListening(server, timeout = 15000) {
 
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error('Servidor não entrou em listening a tempo.'));
+      reject(new Error('Servidor não entrou em listening a tempo (bootstrap do banco).'));
     }, timeout);
 
     function cleanup() {
@@ -836,6 +836,7 @@ app.whenReady().then(() => {
       .then((server) => {
         const address = server.address();
         const portaReal = address && typeof address === 'object' ? address.port : obterPortaServidor();
+        console.log('[BOOTSTRAP] Banco, migrations, configurações e SUPER_ADMIN prontos. Abrindo Login.');
         createWindow(portaReal);
       })
       .catch((error) => {

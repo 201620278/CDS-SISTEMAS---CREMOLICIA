@@ -110,8 +110,9 @@ async function getFiscalConfig({ validarUrls = true } = {}) {
     codigoUf: String(cfg.fiscal_codigo_uf || '23'),
     serie: Number(cfg.fiscal_serie || 1),
     numeroAtual: Number(cfg.fiscal_numero_atual || 1),
-    tokenCSC: cfg.fiscal_token_csc || '',
-    idCSC: cfg.fiscal_id_csc || '',
+    // CSC sempre da configuração oficial (sem default/hardcode de ID ou token).
+    tokenCSC: String(cfg.fiscal_token_csc || '').trim(),
+    idCSC: String(cfg.fiscal_id_csc || '').trim(),
     certificadoPath: cfg.fiscal_certificado_path || '',
     certificadoSenha: cfg.fiscal_certificado_senha || '',
     crt: String(cfg.fiscal_regime_tributario || '1'),

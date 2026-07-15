@@ -120,12 +120,24 @@ function itemVendaPorUnidade(item) {
     return normalizarTipoVendaItem(item) === TIPO_VENDA_UNIDADE;
 }
 
-function obterQuantidadeEstoqueParaVenda(produto, quantidadeVenda, tipoVenda = TIPO_VENDA_PESO) {
+function obterQuantidadeEstoqueParaVenda(produto, quantidadeVenda, tipoVenda = TIPO_VENDA_PESO, opcoes = {}) {
+    if (opcoes.fator_conversao != null && Number(opcoes.fator_conversao) > 0) {
+        return Number(quantidadeVenda || 0) * Number(opcoes.fator_conversao);
+    }
     if (tipoVendaEhUnidade(tipoVenda)) {
         const pesoMedio = Number(produto?.peso_medio_unidade ?? 0);
         return Number(quantidadeVenda || 0) * pesoMedio;
     }
     return Number(quantidadeVenda || 0);
+}
+
+function obterUnidadesComerciaisAtivas(produto) {
+    const lista = Array.isArray(produto?.unidades_comerciais) ? produto.unidades_comerciais : [];
+    return lista.filter((u) => Number(u.ativo ?? 1) !== 0);
+}
+
+function produtoTemMultiplasUnidadesMuc(produto) {
+    return obterUnidadesComerciaisAtivas(produto).length > 1;
 }
 
 function formatarVendaUnidadeConsulta(produto) {
@@ -1136,7 +1148,7 @@ function processarFiscalPosPagamentoPosVenda(vendaId, resultado) {
         return;
     }
 
-    if (fiscal?.success === false) {
+    if (fiscal?.success === false && fiscal?.status !== 'pendente_emissao') {
         showNotification(fiscal.message || 'Erro ao emitir NFC-e.', 'danger');
         mostrarModalErroNFCe(vendaId, fiscal.message || 'NFC-e não autorizada.');
         return;
@@ -1148,6 +1160,7 @@ function processarFiscalPosPagamentoPosVenda(vendaId, resultado) {
         return;
     }
 
+    // POST /vendas responde rápido com pendente_emissao; emissão no endpoint dedicado
     showNotification('Venda finalizada. Emitindo NFC-e...', 'info');
     mostrarModalProcessandoNFCe(vendaId);
     setTimeout(() => emitirNFCeVenda(vendaId), 300);
@@ -2156,6 +2169,14 @@ function encontrarProdutoPorCodigoOuNome(termo) {
 
 function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExtra = '', promocao = null, opcoes = {}) {
     const tipoVenda = normalizarTipoVendaItem(opcoes);
+    const muc = opcoes.unidade_comercial_id
+        ? {
+            unidade_comercial_id: opcoes.unidade_comercial_id,
+            unidade_comercial: opcoes.unidade_comercial || produto.unidade,
+            fator_conversao: Number(opcoes.fator_conversao || 1),
+            codigo_barras_comercial: opcoes.codigo_barras_comercial || null
+        }
+        : null;
 
     if (tipoVendaEhUnidade(tipoVenda)) {
         quantidade = Math.max(0, Math.round(Number(quantidade || 0)));
@@ -2170,8 +2191,13 @@ function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExt
         return;
     }
 
-    const quantidadeEstoque = obterQuantidadeEstoqueParaVenda(produto, quantidade, tipoVenda);
-    if (tipoVendaEhUnidade(tipoVenda) && quantidadeEstoque <= 0) {
+    const quantidadeEstoque = obterQuantidadeEstoqueParaVenda(
+        produto,
+        quantidade,
+        tipoVenda,
+        muc || {}
+    );
+    if (tipoVendaEhUnidade(tipoVenda) && !muc && quantidadeEstoque <= 0) {
         showNotification('Peso médio da unidade não configurado para este produto.', 'warning');
         return;
     }
@@ -2223,19 +2249,26 @@ function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExt
     let descontoAtacadoItem = 0;
     
     const itemExistente = carrinho.find(item =>
-        Number(item.id) === Number(produto.id) && normalizarTipoVendaItem(item) === tipoVenda
+        Number(item.id) === Number(produto.id)
+        && normalizarTipoVendaItem(item) === tipoVenda
+        && Number(item.unidade_comercial_id || 0) === Number(muc?.unidade_comercial_id || 0)
     );
 
     if (itemExistente) {
         const novaQuantidade = Number(itemExistente.quantidade) + quantidade;
-        const novaQuantidadeEstoque = obterQuantidadeEstoqueParaVenda(produto, novaQuantidade, tipoVenda);
+        const novaQuantidadeEstoque = obterQuantidadeEstoqueParaVenda(
+            produto,
+            novaQuantidade,
+            tipoVenda,
+            muc || itemExistente
+        );
 
         if (!pdvNotificarEstoqueInsuficiente(produto, novaQuantidadeEstoque)) {
             return;
         }
 
         // reavaliar preço atacado com a nova quantidade total
-            if (!tipoVendaEhUnidade(tipoVenda) && Number(produto.venda_atacado || 0) === 1) {
+            if (!tipoVendaEhUnidade(tipoVenda) && !muc && Number(produto.venda_atacado || 0) === 1) {
                 const atac = obterPrecoAtacado(produto.id, novaQuantidade, precoFinal);
                 precoFinal = atac.preco;
                 descontoAtacadoItem = atac.descontoAtacado;
@@ -2255,10 +2288,14 @@ function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExt
         itemExistente.promocao_id = promocao?.id || null;
         itemExistente.desconto_atacado = descontoAtacadoItem;
         itemExistente.tipo_venda = tipoVenda;
+        itemExistente.quantidade_estoque = novaQuantidadeEstoque;
+        if (muc) {
+            Object.assign(itemExistente, muc);
+        }
         itemExistente.subtotal = Number((itemExistente.quantidade * precoFinal).toFixed(2));
     } else {
         // avaliar atacado para quantidade inicial
-            if (!tipoVendaEhUnidade(tipoVenda) && Number(produto.venda_atacado || 0) === 1) {
+            if (!tipoVendaEhUnidade(tipoVenda) && !muc && Number(produto.venda_atacado || 0) === 1) {
                 const atac = obterPrecoAtacado(produto.id, quantidade, precoFinal);
                 precoFinal = atac.preco;
                 descontoAtacadoItem = atac.descontoAtacado;
@@ -2281,7 +2318,9 @@ function adicionarItemNoCarrinho(produto, quantidade, precoUnitario, mensagemExt
                 tipo_preco: (Number(produto.venda_atacado || 0) === 1 && descontoAtacadoItem > 0) ? 'atacado' : 'varejo',
             subtotal: Number((quantidade * precoFinal).toFixed(2)),
             item_fiscal: Number(produto.item_fiscal || 0),
-            tipo_venda: tipoVenda
+            tipo_venda: tipoVenda,
+            quantidade_estoque: quantidadeEstoque,
+            ...(muc || {})
         });
     }
 
@@ -2393,15 +2432,138 @@ function continuarAdicionarProdutoPdv(produto, promocao, tipoVenda = TIPO_VENDA_
     });
 }
 
+function abrirModalUnidadeComercialMuc(produto, callback) {
+    $('#modalUnidadeComercialMuc').remove();
+
+    const unidades = obterUnidadesComerciaisAtivas(produto);
+    const sugerida = produto.unidade_comercial_sugerida_id
+        ? Number(produto.unidade_comercial_sugerida_id)
+        : Number(unidades.find((u) => Number(u.principal) === 1)?.id || unidades[0]?.id);
+
+    const opcoesHtml = unidades.map((u, idx) => `
+        <div class="form-check mb-2">
+            <input class="form-check-input" type="radio" name="unidadeComercialMuc"
+                id="unidadeComercialMuc_${u.id}" value="${u.id}"
+                ${Number(u.id) === sugerida || (!sugerida && idx === 0) ? 'checked' : ''}>
+            <label class="form-check-label" for="unidadeComercialMuc_${u.id}">
+                <strong>${escapeHtml(u.unidade || '')}</strong>
+                ${u.descricao && u.descricao !== u.unidade ? ` — ${escapeHtml(u.descricao)}` : ''}
+                <span class="text-muted small d-block">
+                    Fator ${Number(u.fator_conversao || 1)} · R$ ${Number(u.preco || 0).toFixed(2)}
+                </span>
+            </label>
+        </div>
+    `).join('');
+
+    const modalHtml = `
+        <div class="modal fade" id="modalUnidadeComercialMuc" tabindex="-1">
+            <div class="modal-dialog modal-sm modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header py-2">
+                        <h6 class="modal-title">Unidade comercial</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-3 fw-bold">${escapeHtml(produto.nome || 'Produto')}</p>
+                        ${opcoesHtml}
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-primary" id="btnConfirmarUnidadeComercialMuc">Continuar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    $('body').append(modalHtml);
+    const modalEl = document.getElementById('modalUnidadeComercialMuc');
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+
+    const confirmar = () => {
+        const idSelecionado = Number($('input[name="unidadeComercialMuc"]:checked').val());
+        const unidade = unidades.find((u) => Number(u.id) === idSelecionado) || unidades[0];
+        modal.hide();
+        callback(unidade);
+    };
+
+    $('#btnConfirmarUnidadeComercialMuc').off('click').on('click', confirmar);
+    modalEl.addEventListener('hidden.bs.modal', function onHidden() {
+        modalEl.removeEventListener('hidden.bs.modal', onHidden);
+        $('#modalUnidadeComercialMuc').remove();
+    }, { once: true });
+}
+
+function continuarAdicionarProdutoComUnidadeMuc(produto, promocao, unidade) {
+    const unidadeLabel = String(unidade.unidade || 'UN').toUpperCase();
+    const fator = Number(unidade.fator_conversao || 1);
+    const preco = Number(unidade.preco != null ? unidade.preco : produto.preco_venda) || 0;
+    const produtoParaVenda = {
+        ...produto,
+        unidade: unidadeLabel,
+        preco_venda: preco
+    };
+
+    abrirModalQuantidadeProduto(produtoParaVenda, function (quantidade) {
+        adicionarItemNoCarrinho(
+            produtoParaVenda,
+            quantidade,
+            preco,
+            ` - ${quantidade} ${unidadeLabel}`,
+            promocao,
+            {
+                tipo_venda: TIPO_VENDA_PESO,
+                unidade_comercial_id: unidade.id,
+                unidade_comercial: unidadeLabel,
+                fator_conversao: fator,
+                codigo_barras_comercial: unidade.codigo_barras || null
+            }
+        );
+    }, { tipo_venda: TIPO_VENDA_PESO });
+}
+
 function iniciarFluxoAdicionarProdutoPdv(produto, promocao) {
-    if (produtoPermiteEscolhaVendaUnidade(produto)) {
-        abrirModalModoVendaProduto(produto, function (tipoVenda) {
-            continuarAdicionarProdutoPdv(produto, promocao, tipoVenda);
-        });
+    const iniciar = (produtoComUnidades) => {
+        if (produtoTemMultiplasUnidadesMuc(produtoComUnidades)) {
+            abrirModalUnidadeComercialMuc(produtoComUnidades, function (unidade) {
+                continuarAdicionarProdutoComUnidadeMuc(produtoComUnidades, promocao, unidade);
+            });
+            return;
+        }
+
+        const unicas = obterUnidadesComerciaisAtivas(produtoComUnidades);
+        if (unicas.length === 1 && Number(unicas[0].fator_conversao || 1) !== 1) {
+            continuarAdicionarProdutoComUnidadeMuc(produtoComUnidades, promocao, unicas[0]);
+            return;
+        }
+        if (produtoComUnidades.unidade_comercial_sugerida_id && unicas.length >= 1) {
+            const sugerida = unicas.find((u) => Number(u.id) === Number(produtoComUnidades.unidade_comercial_sugerida_id)) || unicas[0];
+            continuarAdicionarProdutoComUnidadeMuc(produtoComUnidades, promocao, sugerida);
+            return;
+        }
+
+        if (produtoPermiteEscolhaVendaUnidade(produtoComUnidades)) {
+            abrirModalModoVendaProduto(produtoComUnidades, function (tipoVenda) {
+                continuarAdicionarProdutoPdv(produtoComUnidades, promocao, tipoVenda);
+            });
+            return;
+        }
+
+        continuarAdicionarProdutoPdv(produtoComUnidades, promocao, TIPO_VENDA_PESO);
+    };
+
+    if (Array.isArray(produto.unidades_comerciais)) {
+        iniciar(produto);
         return;
     }
 
-    continuarAdicionarProdutoPdv(produto, promocao, TIPO_VENDA_PESO);
+    $.get(`${API_URL}/produtos/${produto.id}/unidades`)
+        .done((unidades) => {
+            produto.unidades_comerciais = Array.isArray(unidades) ? unidades : [];
+            iniciar(produto);
+        })
+        .fail(() => iniciar(produto));
 }
 
 function adicionarProdutoPorCodigo(codigo) {
@@ -3542,6 +3704,15 @@ async function executarFinalizacaoVenda(emitirFiscal = false, cpfCnpjNota = null
         };
             if (tipoVendaEhUnidade(tipoVenda) && produto) {
                 itemPayload.quantidade_estoque = obterQuantidadeEstoqueParaVenda(produto, quantidade, TIPO_VENDA_UNIDADE);
+            }
+            if (item.unidade_comercial_id) {
+                itemPayload.unidade_comercial_id = item.unidade_comercial_id;
+                itemPayload.unidade_comercial = item.unidade_comercial;
+                itemPayload.fator_conversao = Number(item.fator_conversao || 1);
+                itemPayload.codigo_barras_comercial = item.codigo_barras_comercial || null;
+                itemPayload.quantidade_estoque = item.quantidade_estoque != null
+                    ? Number(item.quantidade_estoque)
+                    : obterQuantidadeEstoqueParaVenda(produto, quantidade, tipoVenda, item);
             }
             return itemPayload;
         }),

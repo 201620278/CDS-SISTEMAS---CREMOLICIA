@@ -154,6 +154,17 @@ class MotorComercialApi {
     return unwrapData(response);
   }
 
+  /**
+   * Persiste observação do item (STAB-06.6.1) — não altera quantidades/ledger.
+   */
+  async atualizarObservacaoItem(id, itemId, data = {}) {
+    const response = await this.client.patch(
+      `/consignacoes/${id}/itens/${itemId}/observacao`,
+      this._withUsuario({ observacao: data.observacao ?? '' })
+    );
+    return unwrapData(response);
+  }
+
   async removerItem(id, itemId, data = {}) {
     const response = await this.client.delete(`/consignacoes/${id}/itens/${itemId}`, this._withUsuario(data));
     return unwrapData(response);

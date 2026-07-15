@@ -13,6 +13,7 @@ const migration006 = require('./006_indices');
 const migration007 = require('./007_constraints');
 const migration008 = require('./008_outbox');
 const migration009 = require('./009_consignacao_documento_externo');
+const migration010 = require('./010_consignacoes_itens_observacao');
 
 const MIGRATIONS = [
   { id: '001_perfil_comercial', run: migration001 },
@@ -23,7 +24,8 @@ const MIGRATIONS = [
   { id: '006_indices', run: migration006 },
   { id: '007_constraints', run: migration007 },
   { id: '008_outbox', run: migration008 },
-  { id: '009_consignacao_documento_externo', run: migration009 }
+  { id: '009_consignacao_documento_externo', run: migration009 },
+  { id: '010_consignacoes_itens_observacao', run: migration010 }
 ];
 
 /**

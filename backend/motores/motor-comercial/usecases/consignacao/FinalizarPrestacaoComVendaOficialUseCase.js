@@ -103,18 +103,8 @@ class FinalizarPrestacaoComVendaOficialUseCase extends BaseUseCase {
       };
     }
 
-    // STAB-06.3: encerrar sem emitir de novo — exige faturamento quando há venda
-    if (fechar && !entrada.emitirFiscalForcado) {
-      const fatRow = await faturamentoStore.obterPorConsignacao(consignacao.id);
-      const fat = faturamentoStore.toDto(fatRow);
-      if (totalVendido > 0.01 && !fat.podeEncerrarFiscal) {
-        throw new DocumentoInvalidoError(
-          fat.situacaoFiscal === faturamentoStore.SITUACAO.REJEITADA
-            ? `NFC-e rejeitada: ${fat.nfce?.motivo || 'corrija e emita novamente antes de encerrar.'}`
-            : 'Emita a NFC-e (ou aguarde autorização) antes de encerrar a prestação.'
-        );
-      }
-    }
+    // NFC-e é opcional: encerrar não exige autorização fiscal.
+    // Emitir permanece disponível via EmitirNfcePrestacaoUseCase.
 
     let venda = null;
     if (totalVendido > 0.01 && itensVendidos.length > 0 && emitirFiscal) {

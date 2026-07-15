@@ -12,6 +12,7 @@ const {
   definirSaldosIniciaisProduto
 } = require('../services/ajusteEstoqueService');
 const { sqlRankingProdutos, isModoFiscalRelatorio } = require('../services/reportFiscalHelpers');
+const Muc = require('../motores/muc');
 
 function resolverItemFiscalCadastro(body, saldoFiscal, saldoNaoFiscal) {
   if (body.item_fiscal !== undefined && body.item_fiscal !== null) {
@@ -587,6 +588,17 @@ router.get('/consulta-pdv/buscar', (req, res) => {
         OR LOWER(COALESCE(p.codigo, '')) LIKE LOWER(?)
         OR LOWER(COALESCE(p.codigo_barras, '')) LIKE LOWER(?)
         OR (${replaceChain}) LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM produto_unidades pu
+          WHERE pu.produto_id = p.id
+            AND COALESCE(pu.ativo, 1) = 1
+            AND (
+              TRIM(COALESCE(pu.codigo_barras, '')) = ?
+              OR TRIM(COALESCE(pu.codigo_auxiliar, '')) = ?
+              OR LOWER(TRIM(COALESCE(pu.codigo_barras, ''))) = ?
+              OR LOWER(TRIM(COALESCE(pu.codigo_auxiliar, ''))) = ?
+            )
+        )
       )
       ${filtroFiscal}
     ORDER BY match_exato DESC, p.nome ASC
@@ -602,14 +614,52 @@ router.get('/consulta-pdv/buscar', (req, res) => {
     buscaNumero,
     buscaLike,
     buscaLike,
-    buscaLikeNormalized
-  ], (err, rows) => {
+    buscaLikeNormalized,
+    termo,
+    termo,
+    termoLower,
+    termoLower
+  ], async (err, rows) => {
     if (err) {
       console.error('Erro na consulta de produtos PDV:', err.message);
       return res.status(500).json({ error: err.message });
     }
 
-    res.json((rows || []).map((row) => normalizarProdutoResposta(row, modoFiscal)));
+    try {
+      const produtos = (rows || []).map((row) => normalizarProdutoResposta(row, modoFiscal));
+      for (const produto of produtos) {
+        try {
+          produto.unidades_comerciais = await Muc.listar(db, produto.id);
+        } catch (_) {
+          produto.unidades_comerciais = [];
+        }
+      }
+
+      // Se o termo bate exatamente com EAN de uma unidade comercial, marca a unidade sugerida
+      const matchBarras = await Muc.resolverPorBarras(db, termo);
+      if (matchBarras) {
+        const alvo = produtos.find((p) => Number(p.id) === Number(matchBarras.produto_id));
+        if (alvo) {
+          alvo.unidade_comercial_sugerida_id = matchBarras.id;
+        } else {
+          // produto pode não ter entrado pelo LIKE do nome — inclui
+          const produtoExtra = await new Promise((resolve) => {
+            db.get(`SELECT * FROM produtos WHERE id = ?`, [matchBarras.produto_id], (e, r) => resolve(e ? null : r));
+          });
+          if (produtoExtra) {
+            const normalizado = normalizarProdutoResposta(produtoExtra, modoFiscal);
+            normalizado.unidades_comerciais = await Muc.listar(db, produtoExtra.id);
+            normalizado.unidade_comercial_sugerida_id = matchBarras.id;
+            produtos.unshift(normalizado);
+          }
+        }
+      }
+
+      res.json(produtos);
+    } catch (attachErr) {
+      console.error('Erro ao anexar unidades comerciais PDV:', attachErr.message);
+      res.json((rows || []).map((row) => normalizarProdutoResposta(row, modoFiscal)));
+    }
   });
 });
 
@@ -1904,6 +1954,16 @@ router.post('/', (req, res) => {
             return res.status(500).json({ error: 'Produto criado, mas houve erro ao salvar faixas de atacado.' });
           }
 
+          Muc.garantirUnidadeBase(db, {
+            id: produtoId,
+            unidade,
+            preco_venda,
+            codigo_barras,
+            codigo
+          }).catch((mucErr) => {
+            console.error('[MUC] Falha ao criar unidade base do produto:', mucErr.message);
+          });
+
           buscarProdutoCompleto(produtoId, (err2, row) => {
             if (err2 || !row) {
               return res.status(500).json({ error: err2?.message || 'Erro ao buscar produto criado' });
@@ -2458,5 +2518,20 @@ router.post('/verificar-expiradas-agora', (req, res) => {
     });
   });
 });
+
+router.get('/muc/barras/:codigo', async (req, res) => {
+  try {
+    const match = await Muc.resolverPorBarras(db, req.params.codigo);
+    if (!match) {
+      return res.status(404).json({ error: 'Código de barras não encontrado em unidades comerciais.' });
+    }
+    res.json(match);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const mucUnidadesRoutes = require('../motores/muc/routes/unidades.routes');
+router.use('/:id/unidades', mucUnidadesRoutes);
 
 module.exports = router;

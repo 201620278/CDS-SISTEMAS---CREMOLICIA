@@ -56,7 +56,7 @@ function renderCompras(compras) {
                                 <tr>
                                     <td>${c.id || '-'}</td>
                                     <td>${formatDate(c.data_compra)}</td>
-                                    <td>${c.fornecedor || '-'}</td>
+                                    <td>${c.fornecedor || '-'}${c.tipo_entrada === 'PRODUCAO_PROPRIA' ? ' <span class="badge bg-secondary">Produção própria</span>' : ''}</td>
                                     <td>${formatCurrency(c.total)}</td>
                                     <td>${rotuloCondicaoPagamento(c.condicao_pagamento || 'avista')}</td>
                                     <td>${rotuloFormaPagamento(c.forma_pagamento)}</td>
@@ -1444,9 +1444,26 @@ function showCompraModal() {
                         </div>
                         <div class="col-12" id="miipImportacaoStatus" style="display:none;"></div>
 
+<div class="row g-3 mb-2">
+    <div class="col-12">
+        <h6 class="border-bottom pb-2 mb-2">Tipo de Entrada</h6>
+        <div class="d-flex flex-wrap gap-4" id="tipoEntradaCompraGroup" role="radiogroup" aria-label="Tipo de Entrada">
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="tipo_entrada_compra" id="tipo_entrada_compra_fornecedor" value="COMPRA_FORNECEDOR" checked onchange="toggleTipoEntradaCompra()">
+                <label class="form-check-label" for="tipo_entrada_compra_fornecedor">Compra de Fornecedor</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="tipo_entrada_compra" id="tipo_entrada_producao_propria" value="PRODUCAO_PROPRIA" onchange="toggleTipoEntradaCompra()">
+                <label class="form-check-label" for="tipo_entrada_producao_propria">Produção Própria</label>
+            </div>
+        </div>
+        <small class="text-muted d-block mt-1" id="tipoEntradaCompraHint">Entrada com fornecedor, documento e contas a pagar conforme regras atuais.</small>
+    </div>
+</div>
+
 <div class="row g-3">
     <div class="col-12">
-        <h6 class="border-bottom pb-2 mb-2">Dados da nota de compra</h6>
+        <h6 class="border-bottom pb-2 mb-2" id="tituloDadosEntradaCompra">Dados da nota de compra</h6>
     </div>
 
     <div class="col-md-2">
@@ -1465,15 +1482,16 @@ function showCompraModal() {
     </div>
 
     <div class="col-md-6">
-        <label class="form-label">Fornecedor</label>
+        <label class="form-label" id="labelFornecedorCompra">Fornecedor</label>
         <input type="text" class="form-control" id="fornecedor" list="lista_fornecedores" oninput="onFornecedorInput()" onkeydown="onFornecedorKeyDown(event)">
         <datalist id="lista_fornecedores">
             ${fornecedoresList.map(f => `<option value="${escapeHtml(f.nome || '')}"></option>`).join('')}
         </datalist>
+        <small class="text-muted d-none" id="hintFornecedorProducao">Identificação interna — sem cadastro de fornecedor fictício.</small>
     </div>
 
     <div class="col-md-2">
-        <label class="form-label">Número NF</label>
+        <label class="form-label" id="labelNumeroNfCompra">Número NF</label>
         <input type="text" class="form-control" id="numero_nf" maxlength="20">
     </div>
 
@@ -1749,7 +1767,7 @@ function showCompraModal() {
                     
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                        <button type="button" class="btn btn-primary" onclick="saveCompra()">Salvar compra</button>
+                        <button type="button" class="btn btn-primary" id="btnConfirmarEntradaCompra" onclick="saveCompra()">Salvar compra</button>
                     </div>
                 </div>
             </div>
@@ -1779,13 +1797,82 @@ function showCompraModal() {
     renderItensCompraTabela();
     atualizarVisibilidadePagamentoCompra();
     recalcularTotaisCompraNota();
+    toggleTipoEntradaCompra();
+}
+
+const FORNECEDOR_PRODUCAO_PROPRIA_LABEL = 'PRODUÇÃO PRÓPRIA';
+const OBS_PRODUCAO_PROPRIA_PADRAO = 'Abastecimento proveniente da produção própria.';
+
+function obterTipoEntradaCompra() {
+    return String($('input[name="tipo_entrada_compra"]:checked').val() || 'COMPRA_FORNECEDOR');
+}
+
+function isEntradaProducaoPropriaCompra() {
+    return obterTipoEntradaCompra() === 'PRODUCAO_PROPRIA';
+}
+
+function toggleTipoEntradaCompra() {
+    const isProducao = isEntradaProducaoPropriaCompra();
+
+    if (isProducao) {
+        $('#tituloDadosEntradaCompra').text('Dados do abastecimento (produção própria)');
+        $('#tipoEntradaCompraHint').text('Abastecimento de estoque sem financeiro e sem contas a pagar. Mesma rotina futura do Motor Indústria.');
+        $('#labelFornecedorCompra').text('Fornecedor');
+        $('#fornecedor').val(FORNECEDOR_PRODUCAO_PROPRIA_LABEL).prop('readonly', true).attr('list', null);
+        $('#hintFornecedorProducao').removeClass('d-none');
+        $('#labelNumeroNfCompra').text('Documento Fiscal (opcional)');
+        const obsAtual = String($('#observacao_compra').val() || '').trim();
+        if (!obsAtual || obsAtual === OBS_PRODUCAO_PROPRIA_PADRAO) {
+            $('#observacao_compra').val(OBS_PRODUCAO_PROPRIA_PADRAO);
+        }
+        $('#pagamentoSection').hide();
+        $('#parcelas_detalhes').hide();
+        $('#nota_fiscal_avulsa').prop('checked', false).prop('disabled', true);
+        $('#nota_fiscal_avulsa').closest('.col-12').hide();
+        if ($('#itensCompraSection').is(':hidden')) {
+            toggleNotaFiscalAvulsa();
+        }
+        $('#btnConfirmarEntradaCompra').text('Confirmar Entrada');
+        compraImportadaXml = null;
+    } else {
+        $('#tituloDadosEntradaCompra').text('Dados da nota de compra');
+        $('#tipoEntradaCompraHint').text('Entrada com fornecedor, documento e contas a pagar conforme regras atuais.');
+        $('#labelFornecedorCompra').text('Fornecedor');
+        if ($('#fornecedor').val() === FORNECEDOR_PRODUCAO_PROPRIA_LABEL) {
+            $('#fornecedor').val('');
+        }
+        $('#fornecedor').prop('readonly', false).attr('list', 'lista_fornecedores');
+        $('#hintFornecedorProducao').addClass('d-none');
+        $('#labelNumeroNfCompra').text('Número NF');
+        if (String($('#observacao_compra').val() || '').trim() === OBS_PRODUCAO_PROPRIA_PADRAO) {
+            $('#observacao_compra').val('');
+        }
+        $('#pagamentoSection').show();
+        $('#parcelas_detalhes').show();
+        $('#nota_fiscal_avulsa').prop('disabled', false);
+        $('#nota_fiscal_avulsa').closest('.col-12').show();
+        $('#btnConfirmarEntradaCompra').text('Salvar compra');
+        atualizarVisibilidadePagamentoCompra();
+    }
 }
 
 function saveCompra() {
     const isNotaAvulsa = $('#nota_fiscal_avulsa').is(':checked');
+    const isProducaoPropria = isEntradaProducaoPropriaCompra();
+    const tipoEntrada = obterTipoEntradaCompra();
+
+    if (isProducaoPropria && isNotaAvulsa) {
+        showNotification('Produção Própria não permite Nota Fiscal Avulsa.', 'warning');
+        return;
+    }
 
     if (!isNotaAvulsa && !itensCompraAtual.length) {
         showNotification('Adicione ao menos um item.', 'warning');
+        return;
+    }
+
+    if (!isProducaoPropria && !String($('#fornecedor').val() || '').trim()) {
+        showNotification('Informe o fornecedor.', 'warning');
         return;
     }
 
@@ -1821,30 +1908,31 @@ function saveCompra() {
         return;
     }
 
-    const condicaoPagamento = $('#condicao_pagamento').val();
-    const valorEntrada = Number($('#valor_entrada').val()) || 0;
-    const parcelas = parseInt($('#parcelas').val(), 10) || 1;
+    const condicaoPagamento = isProducaoPropria ? 'avista' : $('#condicao_pagamento').val();
+    const valorEntrada = isProducaoPropria ? 0 : (Number($('#valor_entrada').val()) || 0);
+    const parcelas = isProducaoPropria ? 1 : (parseInt($('#parcelas').val(), 10) || 1);
 
-    if (condicaoPagamento === 'entrada_parcelado' && valorEntrada <= 0) {
+    if (!isProducaoPropria && condicaoPagamento === 'entrada_parcelado' && valorEntrada <= 0) {
         showNotification('Informe o valor da entrada para Entrada + Parcelamento.', 'warning');
         return;
     }
 
     const data = {
+        tipo_entrada: tipoEntrada,
         data_compra: $('#data_compra').val(),
         data_emissao: $('#data_emissao').val(),
         data_entrada: $('#data_entrada').val(),
-        fornecedor: $('#fornecedor').val(),
-        fornecedor_cnpj: compraImportadaXml?.fornecedor_cnpj || '',
-        fornecedor_rua: compraImportadaXml?.fornecedor_rua || '',
-        fornecedor_numero: compraImportadaXml?.fornecedor_numero || '',
-        fornecedor_bairro: compraImportadaXml?.fornecedor_bairro || '',
-        fornecedor_cidade: compraImportadaXml?.fornecedor_cidade || '',
-        fornecedor_uf: compraImportadaXml?.fornecedor_uf || '',
-        fornecedor_cep: compraImportadaXml?.fornecedor_cep || '',
+        fornecedor: isProducaoPropria ? FORNECEDOR_PRODUCAO_PROPRIA_LABEL : $('#fornecedor').val(),
+        fornecedor_cnpj: isProducaoPropria ? '' : (compraImportadaXml?.fornecedor_cnpj || ''),
+        fornecedor_rua: isProducaoPropria ? '' : (compraImportadaXml?.fornecedor_rua || ''),
+        fornecedor_numero: isProducaoPropria ? '' : (compraImportadaXml?.fornecedor_numero || ''),
+        fornecedor_bairro: isProducaoPropria ? '' : (compraImportadaXml?.fornecedor_bairro || ''),
+        fornecedor_cidade: isProducaoPropria ? '' : (compraImportadaXml?.fornecedor_cidade || ''),
+        fornecedor_uf: isProducaoPropria ? '' : (compraImportadaXml?.fornecedor_uf || ''),
+        fornecedor_cep: isProducaoPropria ? '' : (compraImportadaXml?.fornecedor_cep || ''),
         numero_nf: $('#numero_nf').val().trim(),
         serie_nf: $('#serie_nf').val().trim(),
-        modelo_nf: $('#modelo_nf').val().trim() || '55',
+        modelo_nf: $('#modelo_nf').val().trim() || (isProducaoPropria ? '' : '55'),
         chave_acesso: ($('#chave_acesso').val() || '').replace(/\D/g, ''),
         valor_produtos: isNotaAvulsa ? valorTotalItens : (Number($('#valor_produtos').val()) || 0),
         valor_desconto: Number($('#valor_desconto').val()) || 0,
@@ -1883,11 +1971,13 @@ function saveCompra() {
         };
         }),
         condicao_pagamento: condicaoPagamento,
-        forma_pagamento: $('#forma_pagamento').val(),
-        data_vencimento: $('#data_vencimento').val(),
+        forma_pagamento: isProducaoPropria ? '' : $('#forma_pagamento').val(),
+        data_vencimento: isProducaoPropria ? '' : $('#data_vencimento').val(),
         parcelas,
         valor_entrada: valorEntrada,
-        observacao: $('#observacao_compra').val(),
+        observacao: isProducaoPropria
+            ? (String($('#observacao_compra').val() || '').trim() || OBS_PRODUCAO_PROPRIA_PADRAO)
+            : $('#observacao_compra').val(),
         nota_fiscal_avulsa: isNotaAvulsa ? 1 : 0
     };
 
@@ -1916,7 +2006,10 @@ function saveCompra() {
         const docCentral = centralDocumentoIdAtual;
         centralDocumentoIdAtual = null;
         $('#compraModal').modal('hide');
-        showNotification(isNotaAvulsa ? 'Nota Fiscal Avulsa registrada com sucesso!' : 'Compra registrada com sucesso!', 'success');
+        const msgSucesso = isProducaoPropria
+            ? (resposta?.message || 'Abastecimento de produção própria registrado (estoque atualizado, sem financeiro).')
+            : (isNotaAvulsa ? 'Nota Fiscal Avulsa registrada com sucesso!' : 'Compra registrada com sucesso!');
+        showNotification(msgSucesso, 'success');
         loadCompras();
         if (docCentral && typeof loadPage === 'function') {
             sessionStorage.setItem('central_pos_gravacao', String(docCentral));
@@ -1928,6 +2021,7 @@ function saveCompra() {
 
 function toggleNotaFiscalAvulsa() {
     const isNotaAvulsa = $('#nota_fiscal_avulsa').is(':checked');
+    const isProducao = typeof isEntradaProducaoPropriaCompra === 'function' && isEntradaProducaoPropriaCompra();
 
     if (isNotaAvulsa) {
         $('#itensCompraSection').hide();
@@ -1956,7 +2050,12 @@ function toggleNotaFiscalAvulsa() {
         $('#valor_total_nota').prop('readonly', true);
         $('#valor_total_nota_hint').text('Calculado automaticamente a partir dos itens.');
         $('#totaisNotaSection').show();
-        $('#pagamentoSection').show();
+        if (isProducao) {
+            $('#pagamentoSection').hide();
+            $('#parcelas_detalhes').hide();
+        } else {
+            $('#pagamentoSection').show();
+        }
         recalcularTotaisCompraNota();
     }
 }

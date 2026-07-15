@@ -1,8 +1,6 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
-const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
 
 // BANCO OFICIAL DEFINITIVO
 // Prioridade 1: variável DB_DIR
@@ -17,7 +15,7 @@ const DB_PATH = path.join(DB_DIR, 'mercadao.db');
 
 let bancoPronto = false;
 const filaProntidao = [];
-let inicializacoesPendentes = 2;
+let bootstrapEmAndamento = false;
 
 function marcarBancoPronto(err) {
   if (err) {
@@ -26,6 +24,7 @@ function marcarBancoPronto(err) {
     console.log('Banco de dados pronto para uso.');
   }
   bancoPronto = true;
+  bootstrapEmAndamento = false;
   while (filaProntidao.length) {
     const callback = filaProntidao.shift();
     try {
@@ -33,16 +32,6 @@ function marcarBancoPronto(err) {
     } catch (callbackErr) {
       console.error('Erro em callback de prontidão do banco:', callbackErr);
     }
-  }
-}
-
-function sinalizarInicializacaoParcial(err) {
-  if (err) {
-    console.error('Erro durante inicialização do banco:', err.message);
-  }
-  inicializacoesPendentes -= 1;
-  if (inicializacoesPendentes <= 0) {
-    marcarBancoPronto(err);
   }
 }
 
@@ -249,7 +238,10 @@ function aplicarAlteracoesPosCriacao() {
     `ALTER TABLE compras ADD COLUMN total_xml DECIMAL(10,2) DEFAULT 0`,
     `ALTER TABLE compras ADD COLUMN total_itens_calculado DECIMAL(10,2) DEFAULT 0`,
     `ALTER TABLE compras ADD COLUMN diferenca_total DECIMAL(10,2) DEFAULT 0`,
-    `ALTER TABLE compras ADD COLUMN fornecedor_cnpj TEXT`
+    `ALTER TABLE compras ADD COLUMN fornecedor_cnpj TEXT`,
+    `ALTER TABLE compras ADD COLUMN tipo_entrada TEXT DEFAULT 'COMPRA_FORNECEDOR'`,
+    `ALTER TABLE compras ADD COLUMN origem_movimentacao TEXT`,
+    `ALTER TABLE compras ADD COLUMN tipo_movimentacao TEXT`
   ];
 
   const alteracoesFinanceiro = [
@@ -2078,28 +2070,52 @@ function migrarRecalcularSaldosEstoque() {
   });
 }
 
+async function finalizarBootstrapAposSchema() {
+  if (bootstrapEmAndamento || bancoPronto) return;
+  bootstrapEmAndamento = true;
+
+  try {
+    const { aplicarMigrationsMotorComercial } = require('./motores/motor-comercial/migrations');
+    await aplicarMigrationsMotorComercial(db);
+
+    const Muc = require('./motores/muc');
+    await Muc.bootstrapMucSchema(db);
+
+    const { executarBootstrap } = require('./lib/DatabaseBootstrapService');
+    await executarBootstrap(db, { migrationsJaExecutadas: true });
+
+    marcarBancoPronto(null);
+  } catch (err) {
+    console.error('[BOOTSTRAP] Falha crítica na inicialização do banco:', err);
+    marcarBancoPronto(err);
+  }
+}
+
 function inicializarBanco() {
   const { migrarDadosCaixaSessoes } = require('./utils/caixaSessaoHelpers');
 
   db.serialize(() => {
+    // Ordem crítica: schema completo ANTES de qualquer seed/leitura em configuracoes.
     criarTabelas();
     criarTabelasMiip();
-    const { aplicarMigrationsMotorComercialSync } = require('./motores/motor-comercial/migrations');
-    aplicarMigrationsMotorComercialSync(db, (err) => {
-      if (err) console.error('Erro ao aplicar migrations Motor Comercial:', err.message);
-    });
+    criarTabelasCaixasEquipamentos();
     aplicarAlteracoesPosCriacao();
     migrarDadosCaixaSessoes(db);
-    inserirConfiguracoesPadrao();
     migrarUrlsFiscalProducao();
     seedPinpadCatalogoTEF();
-    criarUsuarioAdminPadrao();
     garantirCategoriasPadraoDespesa();
     garantirColunasCaixa();
     garantirColunasFinanceiro();
     recuperarItemFiscalComprasItens();
     recuperarQuantidadesFiscaisComprasItens();
-    db.run('SELECT 1', (readyErr) => sinalizarInicializacaoParcial(readyErr));
+    // Configurações + SUPER_ADMIN + verificação final: DatabaseBootstrapService (await).
+    db.run('SELECT 1', (readyErr) => {
+      if (readyErr) {
+        marcarBancoPronto(readyErr);
+        return;
+      }
+      finalizarBootstrapAposSchema();
+    });
   });
 }
 
@@ -2131,7 +2147,10 @@ function garantirColunasCompras() {
       !colunas.includes('valor_desconto') && `ALTER TABLE compras ADD COLUMN valor_desconto DECIMAL(10,2) DEFAULT 0`,
       !colunas.includes('valor_frete') && `ALTER TABLE compras ADD COLUMN valor_frete DECIMAL(10,2) DEFAULT 0`,
       !colunas.includes('valor_outras_despesas') && `ALTER TABLE compras ADD COLUMN valor_outras_despesas DECIMAL(10,2) DEFAULT 0`,
-      !colunas.includes('valor_total_nota') && `ALTER TABLE compras ADD COLUMN valor_total_nota DECIMAL(10,2) DEFAULT 0`
+      !colunas.includes('valor_total_nota') && `ALTER TABLE compras ADD COLUMN valor_total_nota DECIMAL(10,2) DEFAULT 0`,
+      !colunas.includes('tipo_entrada') && `ALTER TABLE compras ADD COLUMN tipo_entrada TEXT DEFAULT 'COMPRA_FORNECEDOR'`,
+      !colunas.includes('origem_movimentacao') && `ALTER TABLE compras ADD COLUMN origem_movimentacao TEXT`,
+      !colunas.includes('tipo_movimentacao') && `ALTER TABLE compras ADD COLUMN tipo_movimentacao TEXT`
     ].filter(Boolean);
 
     db.serialize(() => {
@@ -2476,6 +2495,11 @@ function seedPinpadCatalogoTEF() {
 }
 
 function seedUsuarioAdmin() {
+  const {
+    obterSenhaSuperAdminPadrao,
+    hashSenhaBootstrap
+  } = require('./lib/DatabaseBootstrapService');
+
   db.get('SELECT COUNT(*) AS total FROM usuarios', [], (countErr, countRow) => {
     if (countErr) {
       console.error('Erro ao verificar usuários existentes:', countErr);
@@ -2487,7 +2511,9 @@ function seedUsuarioAdmin() {
         UPDATE usuarios
         SET perfil = 'SUPER_ADMIN',
             pode_alterar_senhas = 1,
-            nome = 'Diego'
+            nome = 'Diego',
+            role = 'admin',
+            ativo = 1
         WHERE username = 'Diego'
       `, (err) => {
         if (err) console.error('Erro ao atualizar perfil do administrador:', err);
@@ -2495,12 +2521,12 @@ function seedUsuarioAdmin() {
       return;
     }
 
-    const senhaInicial = process.env.ADMIN_SEED_PASSWORD || crypto.randomBytes(12).toString('base64url');
-    const hash = bcrypt.hashSync(senhaInicial, 10);
+    const senhaInicial = obterSenhaSuperAdminPadrao();
+    const hash = hashSenhaBootstrap(senhaInicial);
 
     db.run(`
-      INSERT INTO usuarios (username, password_hash, role, nome, perfil, pode_alterar_senhas)
-      VALUES ('Diego', ?, 'admin', 'Diego', 'SUPER_ADMIN', 1)
+      INSERT INTO usuarios (username, password_hash, role, nome, perfil, pode_alterar_senhas, ativo)
+      VALUES ('Diego', ?, 'admin', 'Diego', 'SUPER_ADMIN', 1, 1)
     `, [hash], (err) => {
       if (err) {
         console.error('Erro ao criar usuário administrador padrão:', err);
@@ -2508,16 +2534,15 @@ function seedUsuarioAdmin() {
       }
 
       console.log('Usuário administrador inicial criado (Diego).');
-      if (!process.env.ADMIN_SEED_PASSWORD) {
-        console.warn('[SEGURANÇA] Senha temporária do admin:', senhaInicial);
-        console.warn('[SEGURANÇA] Defina ADMIN_SEED_PASSWORD ou altere a senha no primeiro acesso.');
-      }
     });
   });
 }
 
-
-db.serialize(() => {
+/**
+ * Tabelas de caixa/terminais/equipamentos — DEVEM rodar DEPOIS de criarTabelas()
+ * (configuracoes / usuarios), nunca em paralelo no load do módulo.
+ */
+function criarTabelasCaixasEquipamentos() {
   db.run(`
     CREATE TABLE IF NOT EXISTS caixas (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2855,8 +2880,7 @@ db.serialize(() => {
         FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
       )
     `);
-    db.run('SELECT 1', (readyErr) => sinalizarInicializacaoParcial(readyErr));
-});
+}
 
 db.whenReady = function whenReady(callback) {
   if (typeof callback !== 'function') return;
