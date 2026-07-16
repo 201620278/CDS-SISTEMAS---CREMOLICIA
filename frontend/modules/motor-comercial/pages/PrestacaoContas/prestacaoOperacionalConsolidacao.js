@@ -390,7 +390,7 @@ function _proximoPasso({ financeiro, fiscal, faturamento }) {
     return 'Revise a rejeição e tente emitir a NFC-e novamente.';
   }
   if (fiscal.codigo === SITUACAO_FISCAL.PENDENTE && Number(financeiro.valorVenda || 0) > 0.01) {
-    return 'Emita a NFC-e para liberar o encerramento.';
+    return 'NFC-e opcional — emita se quiser, ou encerre a prestação.';
   }
   if (Number(financeiro.saldoEmAberto || 0) > 0.01) {
     return 'Há saldo em aberto — pode encerrar; o saldo permanece na conta corrente.';
