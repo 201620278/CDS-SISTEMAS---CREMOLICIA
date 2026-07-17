@@ -203,6 +203,20 @@ function obterDestinoPosLogin(user) {
 
     if (moduloPreferido === 'pdv' && podeAbrirPDV(user)) return '/pdv';
     if (moduloPreferido === 'erp' && podeAbrirERP(user)) return '/erp';
+    if (moduloPreferido === 'mobile') {
+        if (podeAbrirERP(user) || podeAbrirPDV(user)) {
+            return (window.CDSPlatform && window.CDSPlatform.MOBILE_PATH) || '/apps/mobile/';
+        }
+    }
+
+    /* CDS Mobile: dispositivo mobile / preferência explícita → shell mobile (não ERP reduzido). */
+    const prefereMobile = typeof isClienteMobilePreferido === 'function'
+        ? isClienteMobilePreferido()
+        : !!(window.CDSPlatform && window.CDSPlatform.isClienteMobilePreferido && window.CDSPlatform.isClienteMobilePreferido());
+
+    if (prefereMobile && (podeAbrirERP(user) || podeAbrirPDV(user))) {
+        return (window.CDSPlatform && window.CDSPlatform.MOBILE_PATH) || '/apps/mobile/';
+    }
 
     if (isUsuarioCaixa(user)) return '/pdv';
     if (podeAbrirERP(user)) return '/erp';

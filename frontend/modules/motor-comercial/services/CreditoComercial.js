@@ -17,19 +17,20 @@
  * }}
  */
 function normalizarCreditoComercial(fonte = {}) {
-  const limiteComercial = Number(fonte.limiteComercial ?? fonte.limite ?? 0);
+  const src = fonte && typeof fonte === 'object' ? fonte : {};
+  const limiteComercial = Number(src.limiteComercial ?? src.limite ?? 0);
 
   const saldoDevedor = Number(
-    fonte.saldoDevedor
-    ?? fonte.saldoAberto
-    ?? fonte.saldo
-    ?? fonte.utilizado
+    src.saldoDevedor
+    ?? src.saldoAberto
+    ?? src.saldo
+    ?? src.utilizado
     ?? 0
   );
 
-  const saldoCredor = Number(fonte.saldoCredor ?? 0);
+  const saldoCredor = Number(src.saldoCredor ?? 0);
 
-  const creditoRaw = fonte.creditoDisponivel ?? fonte.limiteDisponivel;
+  const creditoRaw = src.creditoDisponivel ?? src.limiteDisponivel;
   const creditoDisponivel = creditoRaw != null ? Number(creditoRaw) : null;
 
   return {

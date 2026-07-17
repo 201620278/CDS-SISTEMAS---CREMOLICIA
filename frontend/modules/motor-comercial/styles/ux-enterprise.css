@@ -169,6 +169,36 @@
   border: 1px solid #fed7aa;
 }
 
+.cds-entrega-status-banner__title {
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.cds-entrega-status-banner__list {
+  margin: 0.25rem 0 0.5rem 1.1rem;
+  padding: 0;
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+
+.cds-entrega-status-banner__list li {
+  margin: 0.15rem 0;
+}
+
+.cds-entrega-status-banner__hint {
+  margin: 0.35rem 0 0.55rem;
+  font-weight: 500;
+  font-size: 0.82rem;
+  opacity: 0.95;
+}
+
+.cds-entrega-status-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
 .cds-entrega-identity {
   display: flex;
   flex-wrap: wrap;

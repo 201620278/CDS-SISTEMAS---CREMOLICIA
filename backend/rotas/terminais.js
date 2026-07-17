@@ -44,17 +44,37 @@ function extrairUsuarioHeartbeat(req) {
   };
 }
 
+const ORIGENS_CLIENTE = new Set(['pdv', 'mobile', 'erp']);
+
+function normalizarOrigemCliente(raw) {
+  const origem = String(raw || '').trim().toLowerCase();
+  if (ORIGENS_CLIENTE.has(origem)) return origem;
+  return '';
+}
+
+function extrairMetaCliente(req) {
+  const origem = normalizarOrigemCliente(req.query.origem || req.body?.origem);
+  const clienteTipo = String(req.query.cliente_tipo || req.body?.cliente_tipo || origem || '').trim().toLowerCase() || null;
+  const clienteVersao = String(req.query.versao || req.query.cliente_versao || req.body?.versao || '').trim() || null;
+  const plataforma = String(req.query.plataforma || req.body?.plataforma || '').trim() || null;
+  const ultimoIp = req.ip || req.headers['x-forwarded-for'] || null;
+  return { origem, clienteTipo, clienteVersao, plataforma, ultimoIp };
+}
+
 function registrarTerminalAuto(req, res) {
-  const origem = String(req.query.origem || '').trim().toLowerCase();
-  if (origem !== 'pdv') {
-    return res.status(400).json({ error: 'Heartbeat de terminal permitido apenas pelo módulo PDV (origem=pdv).' });
+  const meta = extrairMetaCliente(req);
+  if (!meta.origem) {
+    return res.status(400).json({
+      error: 'Heartbeat de terminal exige origem válida (pdv, mobile ou erp).'
+    });
   }
 
   const hostname = String(req.query.hostname || '').trim();
   if (!hostname || hostname === 'web-browser') {
-    return res.status(400).json({ error: 'Hostname do terminal PDV inválido.' });
+    return res.status(400).json({ error: 'Hostname do terminal inválido.' });
   }
 
+  const nomeSugerido = String(req.query.nome || req.query.nome_sugerido || '').trim();
   const { usuario_id: usuarioId, usuario_nome: usuarioNome } = extrairUsuarioHeartbeat(req);
 
   db.get(`SELECT * FROM terminais WHERE hostname = ?`, [hostname], (err, terminal) => {
@@ -63,8 +83,19 @@ function registrarTerminalAuto(req, res) {
     const agora = new Date().toISOString();
     if (terminal) {
       db.run(
-        `UPDATE terminais SET ultima_conexao = ?, usuario_id = ?, usuario_nome = ?, updated_at = ? WHERE id = ?`,
-        [agora, usuarioId, usuarioNome, agora, terminal.id],
+        `UPDATE terminais
+         SET ultima_conexao = ?, usuario_id = ?, usuario_nome = ?,
+             cliente_tipo = COALESCE(?, cliente_tipo),
+             cliente_versao = COALESCE(?, cliente_versao),
+             plataforma = COALESCE(?, plataforma),
+             ultimo_ip = COALESCE(?, ultimo_ip),
+             updated_at = ?
+         WHERE id = ?`,
+        [
+          agora, usuarioId, usuarioNome,
+          meta.clienteTipo, meta.clienteVersao, meta.plataforma, meta.ultimoIp,
+          agora, terminal.id
+        ],
         (updateErr) => {
           if (updateErr) {
             console.error('Erro ao atualizar terminal:', updateErr);
@@ -78,10 +109,17 @@ function registrarTerminalAuto(req, res) {
       return;
     }
 
-    const nomeTerminal = hostname;
+    const nomeTerminal = nomeSugerido || hostname;
     db.run(
-      `INSERT INTO terminais (nome, hostname, usuario_id, usuario_nome, ativo, ultima_conexao, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
-      [hostname, hostname, usuarioId, usuarioNome, agora, agora, agora],
+      `INSERT INTO terminais (
+         nome, hostname, usuario_id, usuario_nome, ativo, ultima_conexao,
+         cliente_tipo, cliente_versao, plataforma, ultimo_ip, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nomeTerminal, hostname, usuarioId, usuarioNome, agora,
+        meta.clienteTipo, meta.clienteVersao, meta.plataforma, meta.ultimoIp,
+        agora, agora
+      ],
       function(insertErr) {
         if (insertErr) return res.status(500).json({ error: insertErr.message });
 
@@ -96,7 +134,7 @@ function registrarTerminalAuto(req, res) {
             acao: 'criar_terminal',
             referencia_tipo: 'terminal',
             referencia_id: novoId,
-            detalhes: { nome: nomeTerminal, hostname, origem: 'pdv' },
+            detalhes: { nome: nomeTerminal, hostname, origem: meta.origem, cliente_tipo: meta.clienteTipo },
             ip_requisicao: req.ip || null
           }).catch((auditErr) => console.error('Erro ao gravar auditoria de terminal:', auditErr));
 
@@ -184,9 +222,9 @@ function atualizarNomeTerminalPdv(req, res) {
 }
 
 function registrarTerminalOffline(req, res) {
-  const origem = String(req.query.origem || '').trim().toLowerCase();
-  if (origem !== 'pdv') {
-    return res.status(400).json({ error: 'Desconexão permitida apenas pelo módulo PDV (origem=pdv).' });
+  const origem = normalizarOrigemCliente(req.query.origem);
+  if (!origem) {
+    return res.status(400).json({ error: 'Desconexão exige origem válida (pdv, mobile ou erp).' });
   }
 
   const hostname = String(req.query.hostname || '').trim();
@@ -207,29 +245,138 @@ function registrarTerminalOffline(req, res) {
 
 router.get('/', (req, res) => {
   db.all(`
-    SELECT t.*, c.nome AS caixa_nome
+    SELECT t.*, c.nome AS caixa_nome,
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM caixa_sessoes cs
+          WHERE cs.terminal_id = t.id AND cs.status = 'aberta'
+        ) THEN 1 ELSE 0
+      END AS caixa_aberto
     FROM terminais t
     LEFT JOIN caixas c ON c.id = t.caixa_id
-    WHERE COALESCE(t.ativo, 1) = 1
-    ORDER BY t.ultima_conexao DESC, t.id
+    ORDER BY COALESCE(t.ativo, 1) DESC, t.ultima_conexao DESC, t.id
   `, [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(anexarStatusOnline(rows));
   });
 });
 
+router.delete('/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'ID inválido.' });
+
+  db.get(`SELECT * FROM terminais WHERE id = ?`, [id], (err, terminal) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!terminal) return res.status(404).json({ error: 'Terminal não encontrado.' });
+
+    db.get(
+      `SELECT id FROM caixa_sessoes
+       WHERE terminal_id = ? AND LOWER(COALESCE(status,'')) IN ('aberto', 'aberta')
+       LIMIT 1`,
+      [id],
+      (sessErr, sessaoAberta) => {
+        if (sessErr) return res.status(500).json({ error: sessErr.message });
+        if (sessaoAberta) {
+          return res.status(400).json({
+            error: 'Não é possível excluir: existe caixa aberto neste terminal. Feche o caixa antes.'
+          });
+        }
+
+        db.serialize(() => {
+          db.run('BEGIN IMMEDIATE');
+
+          const limparRefs = [
+            `UPDATE caixa_sessoes SET terminal_id = NULL WHERE terminal_id = ?`,
+            `UPDATE caixa_movimentacoes SET terminal_id = NULL WHERE terminal_id = ?`,
+            `UPDATE caixa_fechamentos SET terminal_id = NULL WHERE terminal_id = ?`,
+            `UPDATE auditoria_caixa SET terminal_id = NULL WHERE terminal_id = ?`,
+            `UPDATE caixa SET terminal_id = NULL WHERE terminal_id = ?`,
+            `UPDATE vendas SET terminal_id = NULL WHERE terminal_id = ?`,
+            `UPDATE equipamentos SET terminal_id = NULL WHERE terminal_id = ?`
+          ];
+
+          const runNext = (index) => {
+            if (index >= limparRefs.length) {
+              db.run(`DELETE FROM terminais WHERE id = ?`, [id], function (delErr) {
+                if (delErr) {
+                  db.run('ROLLBACK');
+                  return res.status(500).json({ error: delErr.message });
+                }
+                if (!this.changes) {
+                  db.run('ROLLBACK');
+                  return res.status(404).json({ error: 'Terminal não encontrado.' });
+                }
+
+                db.run('COMMIT', (commitErr) => {
+                  if (commitErr) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ error: commitErr.message });
+                  }
+
+                  gravarAuditoria({
+                    usuario_id: req.user?.id || null,
+                    usuario_nome: req.user?.nome || req.user?.username || null,
+                    modulo: 'terminais',
+                    acao: 'excluir_terminal',
+                    referencia_tipo: 'terminal',
+                    referencia_id: id,
+                    detalhes: {
+                      nome: terminal.nome,
+                      hostname: terminal.hostname,
+                      cliente_tipo: terminal.cliente_tipo || null
+                    },
+                    ip_requisicao: req.ip || null
+                  }).catch(() => {});
+
+                  res.json({ ok: true, id, excluido: true });
+                });
+              });
+              return;
+            }
+
+            db.run(limparRefs[index], [id], (updErr) => {
+              // Tabelas opcionais podem não existir em bases antigas — ignora erro de "no such table"
+              if (updErr && !/no such table/i.test(String(updErr.message || ''))) {
+                db.run('ROLLBACK');
+                return res.status(500).json({ error: updErr.message });
+              }
+              runNext(index + 1);
+            });
+          };
+
+          runNext(0);
+        });
+      }
+    );
+  });
+});
+
 router.post('/', (req, res) => {
-  const { nome, hostname, caixa_id, ativo } = req.body;
+  const { nome, hostname, caixa_id, ativo, cliente_tipo, cliente_versao, plataforma } = req.body;
   const nomeTerminal = String(nome || hostname || '').trim();
 
   if (!nomeTerminal) {
     return res.status(400).json({ error: 'Nome ou hostname do terminal é obrigatório.' });
   }
 
-  const valores = [nomeTerminal, String(hostname || nomeTerminal).trim() || null, caixa_id || null, ativo === 0 ? 0 : 1, new Date().toISOString(), new Date().toISOString()];
+  const agora = new Date().toISOString();
+  const valores = [
+    nomeTerminal,
+    String(hostname || nomeTerminal).trim() || null,
+    caixa_id || null,
+    ativo === 0 ? 0 : 1,
+    String(cliente_tipo || '').trim().toLowerCase() || null,
+    String(cliente_versao || '').trim() || null,
+    String(plataforma || '').trim() || null,
+    agora,
+    agora
+  ];
 
   db.run(
-    `INSERT INTO terminais (nome, hostname, caixa_id, ativo, ultima_conexao, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO terminais (
+       nome, hostname, caixa_id, ativo, cliente_tipo, cliente_versao, plataforma,
+       ultima_conexao, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     valores,
     function(err) {
       if (err) return res.status(500).json({ error: err.message });

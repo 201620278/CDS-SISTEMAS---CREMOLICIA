@@ -109,7 +109,21 @@ function loadPage(page) {
             return carregarPaginaHtml('caixas.html', function () {
                 if (typeof loadCaixas === 'function') {
                     buscarCaixas();
+                    if (typeof buscarTerminais === 'function') buscarTerminais();
                 }
+            });
+        case 'terminais':
+            return carregarPaginaHtml('caixas.html', function () {
+                if (typeof loadCaixas === 'function') {
+                    buscarCaixas();
+                    if (typeof buscarTerminais === 'function') buscarTerminais();
+                }
+                setTimeout(function () {
+                    var el = document.getElementById('central-terminais');
+                    if (el && typeof el.scrollIntoView === 'function') {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                }, 120);
             });
         case 'comercial-dashboard':
         case 'comercial-clientes':

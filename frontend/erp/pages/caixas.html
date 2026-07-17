@@ -96,36 +96,43 @@
     </div>
   </div>
 
-  <!-- Dispositivos (PDVs conectados) -->
-  <div class="card mt-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <h5 class="mb-0"><i class="fas fa-desktop"></i> Dispositivos conectados</h5>
-      <button type="button" class="btn btn-sm btn-outline-primary" onclick="buscarTerminais()">
-        <i class="fas fa-sync-alt"></i> Atualizar
-      </button>
+  <!-- Central de Terminais (PDV Desktop + CDS Mobile) -->
+  <div class="card mt-4" id="central-terminais">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h5 class="mb-0"><i class="fas fa-mobile-alt"></i> Central de Terminais</h5>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline-success" onclick="abrirModalNovoTerminal()">
+          <i class="fas fa-plus"></i> Registrar
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="buscarTerminais()">
+          <i class="fas fa-sync-alt"></i> Atualizar
+        </button>
+      </div>
     </div>
     <div class="card-body p-0">
       <p class="text-muted small px-3 pt-3 mb-2">
-        Lista apenas dispositivos com o <strong>app PDV</strong> aberto (heartbeat a cada 2 min).
-        Status <em>PDV ativo</em> = sinal nos últimos 3 minutos. Defina um <strong>nome amigável</strong> em cada PDV
-        (menu <em>Nome deste PDV</em>, Super Admin) para identificar o computador na vinculação.
+        Terminais oficiais da Plataforma CDS: <strong>PDV Desktop</strong>, <strong>CDS Mobile</strong> e ERP.
+        Status <em>Online</em> = heartbeat nos últimos 3 minutos. Vincule a um caixa para operação multi-caixa.
       </p>
       <div class="table-responsive">
         <table class="table table-hover mb-0">
           <thead class="table-light">
             <tr>
               <th>Nome</th>
-              <th>Hostname</th>
-              <th>Usuário terminal</th>
-              <th>Caixa vinculado</th>
+              <th>Tipo</th>
               <th>Status</th>
-              <th>Última conexão</th>
+              <th>IP</th>
+              <th>Usuário</th>
+              <th>Último acesso</th>
+              <th>Versão</th>
+              <th>Terminal ID</th>
+              <th>Caixa</th>
               <th>Ações</th>
             </tr>
           </thead>
           <tbody id="tabelaTerminais">
             <tr>
-              <td colspan="7" class="text-center text-muted py-4">Carregando dispositivos...</td>
+              <td colspan="10" class="text-center text-muted py-4">Carregando terminais...</td>
             </tr>
           </tbody>
         </table>
@@ -182,18 +189,18 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Configurar dispositivo</h5>
+        <h5 class="modal-title">Configurar terminal</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="terminalEditId">
         <div class="mb-3">
-          <label class="form-label text-muted">Hostname (identificador do PC)</label>
+          <label class="form-label text-muted">Hostname (identificador)</label>
           <input type="text" class="form-control" id="terminalEditHostname" readonly>
         </div>
         <div class="mb-3">
           <label for="terminalEditNome" class="form-label">Nome do terminal <span class="text-danger">*</span></label>
-          <input type="text" class="form-control" id="terminalEditNome" placeholder="Ex: PDV Frente, Caixa 01">
+          <input type="text" class="form-control" id="terminalEditNome" placeholder="Ex: CDS Mobile Diego, PDV Frente">
           <small class="text-danger" id="erroTerminalNome"></small>
         </div>
         <div class="mb-3">
@@ -207,6 +214,41 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-primary" onclick="salvarTerminal()">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Novo Terminal -->
+<div class="modal fade" id="modalNovoTerminal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Registrar terminal</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="terminalNovoNome" class="form-label">Nome <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="terminalNovoNome" placeholder="Ex: CDS Mobile Reserva">
+        </div>
+        <div class="mb-3">
+          <label for="terminalNovoHostname" class="form-label">Hostname / identificador <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="terminalNovoHostname" placeholder="Ex: mobile-manual-01">
+        </div>
+        <div class="mb-3">
+          <label for="terminalNovoTipo" class="form-label">Tipo</label>
+          <select class="form-select" id="terminalNovoTipo">
+            <option value="mobile">CDS Mobile</option>
+            <option value="pdv">PDV Desktop</option>
+            <option value="erp">ERP Desktop</option>
+            <option value="tablet">Tablet</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-success" onclick="salvarNovoTerminal()">Registrar</button>
       </div>
     </div>
   </div>

@@ -48,38 +48,74 @@ function dinheiro(v) {
   return formatCurrency(Number(v || 0));
 }
 
-function getTerminalRequestData(body = {}) {
-  if (typeof terminalId !== 'undefined' && terminalId !== null) {
-    body.terminal_id = terminalId;
+function obterTerminalIdCaixa() {
+  if (typeof obterTerminalIdPdv === 'function') {
+    const id = obterTerminalIdPdv();
+    if (id) return id;
   }
+  if (Number.isInteger(window.terminalId) && window.terminalId > 0) {
+    return window.terminalId;
+  }
+  if (typeof terminalId !== 'undefined' && Number.isInteger(terminalId) && terminalId > 0) {
+    return terminalId;
+  }
+  return null;
+}
+
+function getTerminalRequestData(body = {}) {
+  const id = obterTerminalIdCaixa();
+  if (id) body.terminal_id = id;
   return body;
 }
 
 function getTerminalRequestQuery(params = {}) {
-  if (typeof terminalId !== 'undefined' && terminalId !== null) {
-    params.terminal_id = terminalId;
-  }
+  const id = obterTerminalIdCaixa();
+  if (id) params.terminal_id = id;
   return params;
+}
+
+function forcarAtualizacaoUiCaixa() {
+  if (typeof limparModaisTravados === 'function') {
+    limparModaisTravados();
+  }
+  if (window.electronAPI && typeof window.electronAPI.forcarReflow === 'function') {
+    window.electronAPI.forcarReflow();
+  }
 }
 
 function carregarCaixaAberto() {
   const carregar = () => {
-    $.get(`${API_URL}/caixa/aberto`, getTerminalRequestQuery(), function(resumo) {
-      if (!resumo) {
-        renderStatusCaixa(null);
-        renderAbrirCaixa();
-        return;
-      }
+    $.ajax({
+      url: `${API_URL}/caixa/aberto`,
+      method: 'GET',
+      cache: false,
+      data: getTerminalRequestQuery({ _ts: Date.now() }),
+      headers: {
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache'
+      },
+      success: function(resumo) {
+        if (!resumo) {
+          if (typeof caixaAberto !== 'undefined') caixaAberto = false;
+          renderStatusCaixa(null);
+          renderAbrirCaixa();
+          if (typeof atualizarStatusCaixaUI === 'function') atualizarStatusCaixaUI();
+          return;
+        }
 
-      renderStatusCaixa(resumo);
-      renderCaixaAberto(resumo);
-    }).fail(function(xhr) {
-      if (xhr.status === 400 && typeof terminalPdvRegistrado === 'function' && !terminalPdvRegistrado()) {
-        renderStatusCaixa(null);
-        renderAbrirCaixa();
-        return;
+        if (typeof caixaAberto !== 'undefined') caixaAberto = true;
+        renderStatusCaixa(resumo);
+        renderCaixaAberto(resumo);
+        if (typeof atualizarStatusCaixaUI === 'function') atualizarStatusCaixaUI();
+      },
+      error: function(xhr) {
+        if (xhr.status === 400 && typeof terminalPdvRegistrado === 'function' && !terminalPdvRegistrado()) {
+          renderStatusCaixa(null);
+          renderAbrirCaixa();
+          return;
+        }
+        showNotification(xhr.responseJSON?.error || 'Erro ao carregar caixa.', 'danger');
       }
-      showNotification(xhr.responseJSON?.error || 'Erro ao carregar caixa.', 'danger');
     });
   };
 
@@ -152,6 +188,7 @@ function renderAbrirCaixa() {
             </div>
           </div>
         `);
+        forcarAtualizacaoUiCaixa();
         return;
       }
       renderFormularioAbrirCaixa();
@@ -199,6 +236,9 @@ function renderFormularioAbrirCaixa() {
       </div>
     </div>
   `);
+
+  forcarAtualizacaoUiCaixa();
+  setTimeout(forcarAtualizacaoUiCaixa, 50);
 
   carregarSaldoInicialSugerido();
 }
@@ -479,28 +519,108 @@ function registrarSuprimento() {
   });
 }
 
+function confirmarAcaoCaixa(mensagem, onConfirm) {
+  // confirm() nativo no Electron trava o paint do Chromium após o diálogo.
+  // No browser continua seguro; no Electron usamos modal Bootstrap.
+  if (!window.electronAPI || typeof bootstrap === 'undefined') {
+    if (window.confirm(mensagem)) onConfirm();
+    return;
+  }
+
+  const modalId = 'modalConfirmarCaixaPdv';
+  $(`#${modalId}`).remove();
+  $('body').append(`
+    <div class="modal fade" id="${modalId}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header bg-danger text-white">
+            <h5 class="modal-title">Confirmar fechamento</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-0">${mensagem}</p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="button" class="btn btn-danger" id="btnConfirmarFecharCaixaPdv">Fechar Caixa</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `);
+
+  const el = document.getElementById(modalId);
+  const modal = bootstrap.Modal.getOrCreateInstance(el);
+  const limpar = () => {
+    modal.hide();
+    setTimeout(() => $(`#${modalId}`).remove(), 200);
+  };
+
+  $(el).one('click', '#btnConfirmarFecharCaixaPdv', function() {
+    limpar();
+    setTimeout(onConfirm, 30);
+  });
+  $(el).one('hidden.bs.modal', function() {
+    $(`#${modalId}`).remove();
+  });
+  modal.show();
+}
+
+function apresentarTelaCaixaFechado() {
+  if (typeof caixaAberto !== 'undefined') caixaAberto = false;
+
+  // 1) Atualização síncrona imediata (sem aguardarTerminal / sem GET)
+  if ($('#status-caixa-area').length) {
+    renderStatusCaixa(null);
+  }
+  if ($('#caixa-area').length && typeof renderFormularioAbrirCaixa === 'function') {
+    renderFormularioAbrirCaixa();
+  } else if ($('#caixa-area').length) {
+    renderAbrirCaixa();
+  }
+  forcarAtualizacaoUiCaixa();
+
+  // 2) Reconstrói a página inteira no Electron (paint confiável)
+  setTimeout(function() {
+    if (typeof loadCaixa === 'function') {
+      loadCaixa();
+    }
+    forcarAtualizacaoUiCaixa();
+    if (typeof atualizarStatusCaixaUI === 'function') atualizarStatusCaixaUI();
+    if (typeof verificarStatusCaixa === 'function') verificarStatusCaixa();
+  }, 60);
+}
+
 function fecharCaixa() {
   const valorFechamento = pegarValorCampo('#valor-fechamento');
   const observacao = $('#observacao-fechamento').val();
 
-  if (!confirm('Tem certeza que deseja fechar o caixa?')) return;
-
-  $.ajax({
-    url: `${API_URL}/caixa/fechar`,
-    method: 'POST',
-    contentType: 'application/json',
-    data: JSON.stringify(getTerminalRequestData({
-      valor_informado: valorFechamento,
-      observacao
-    })),
-    success: function(res) {
-      showNotification('Caixa fechado com sucesso.', 'success');
-      carregarCaixaAberto();
-      console.log('Resumo fechamento:', res.resumo);
-    },
-    error: function(xhr) {
-      showNotification(xhr.responseJSON?.error || 'Erro ao fechar caixa.', 'danger');
-    }
+  confirmarAcaoCaixa('Tem certeza que deseja fechar o caixa?', function() {
+    $.ajax({
+      url: `${API_URL}/caixa/fechar`,
+      method: 'POST',
+      cache: false,
+      contentType: 'application/json',
+      headers: {
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache'
+      },
+      data: JSON.stringify(getTerminalRequestData({
+        valor_informado: valorFechamento,
+        observacao
+      })),
+      success: function() {
+        showNotification('Caixa fechado com sucesso.', 'success');
+        // Deferir um frame: garante paint após fechar modal/confirm no Electron.
+        requestAnimationFrame(function() {
+          setTimeout(apresentarTelaCaixaFechado, 40);
+        });
+      },
+      error: function(xhr) {
+        showNotification(xhr.responseJSON?.error || 'Erro ao fechar caixa.', 'danger');
+        forcarAtualizacaoUiCaixa();
+      }
+    });
   });
 }
 

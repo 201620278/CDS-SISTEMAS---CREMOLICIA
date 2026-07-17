@@ -1,6 +1,6 @@
 # STAB-03 Release Report — Motor Comercial
 
-**Gerado em:** 2026-07-15T03:18:04.899Z
+**Gerado em:** 2026-07-17T00:07:03.066Z
 
 ## BuildInfo
 
@@ -9,8 +9,8 @@
   "module": "motor-comercial",
   "version": "1.0.3",
   "sprint": "UX-10",
-  "buildTime": "2026-07-15 00:18:00",
-  "hash": "FEDAE152A7A0C6D4CD6497B1DEAF9A30FA277B25A222DF0E84E536C52FCAF25F",
+  "buildTime": "2026-07-16 21:06:53",
+  "hash": "29884443837A0784C4E6372D85410383EE43A8D12EC82119F046E94DD4DF0014",
   "ambiente": "development"
 }
 ```
@@ -20,9 +20,9 @@
 | Campo | Valor |
 |-------|-------|
 | path | `frontend/modules/motor-comercial/motor-comercial.bundle.js` |
-| mtime | 2026-07-15T03:18:03.382Z |
+| mtime | 2026-07-17T00:07:01.345Z |
 | size | 5219439 |
-| hash (corpo) | FEDAE152A7A0C6D4CD6497B1DEAF9A30FA277B25A222DF0E84E536C52FCAF25F |
+| hash (corpo) | 29884443837A0784C4E6372D85410383EE43A8D12EC82119F046E94DD4DF0014 |
 | sprint | UX-10 |
 
 ## Pipeline executado

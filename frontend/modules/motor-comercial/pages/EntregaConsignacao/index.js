@@ -37,6 +37,7 @@ const {
   parseNavigationContext,
   resolveBackPath,
   routeWithActiveContext,
+  buildRouteWithCliente360Context,
   getBackButtonLabel
 } = require('../../utils/cliente360Context');
 const {
@@ -130,13 +131,61 @@ class EntregaConsignacaoPage {
 
   _buildWorkspaceHeader() {
     const doc = this.consignacao?.documento || this.consignacaoId || '—';
-    const cliente = this.consignacao?.cliente || this.consignacao?.clienteNome || '—';
+    const cliente = this._clienteLabel();
     return Workspace.Header.create({
       title: 'Entrega',
       subtitle: 'Confirme os itens e entregue',
       context: `Documento: ${doc} · Cliente: ${cliente}`,
       onBack: () => this._handleCancel()
     });
+  }
+
+  _clienteLabel() {
+    const c = this.consignacao;
+    if (!c) return '—';
+    const nome = c.clienteNome || c.cliente_nome || c.nome_cliente;
+    if (nome) return nome;
+    if (typeof c.cliente === 'string' && c.cliente && !/^\d+$/.test(c.cliente)) return c.cliente;
+    if (c.cliente && typeof c.cliente === 'object') {
+      return c.cliente.nome || c.cliente.razaoSocial || c.cliente.nomeFantasia || '—';
+    }
+    const id = c.clienteId ?? c.cliente_id;
+    return id != null ? `Cliente #${id}` : '—';
+  }
+
+  _checklistLabels() {
+    return [
+      { key: 'clienteValido', label: 'Cliente válido' },
+      { key: 'perfilAtivo', label: 'Cliente habilitado' },
+      { key: 'limiteSuficiente', label: 'Limite suficiente' },
+      { key: 'documentoValido', label: 'Documento válido' },
+      { key: 'itensCadastrados', label: 'Itens cadastrados' },
+      { key: 'quantidadesValidas', label: 'Quantidades válidas' },
+      { key: 'consignacaoRascunho', label: 'Consignação em RASCUNHO' },
+      { key: 'operadorAutorizado', label: 'Operador autorizado' }
+    ];
+  }
+
+  _pendenciasEntrega() {
+    return this._checklistLabels().filter((item) => !this.checklist[item.key]);
+  }
+
+  _podeEditarRascunho() {
+    const st = String(this.consignacao?.status || '').toUpperCase();
+    return st === 'RASCUNHO' && !!this.consignacaoId;
+  }
+
+  _abrirRascunhoParaRevisar() {
+    if (!this.consignacaoId) return;
+    const path = `/consignacoes/nova?consignacaoId=${this.consignacaoId}`;
+    const clienteId = this.navigationContext?.clienteId || this.consignacao?.clienteId;
+    if (clienteId) {
+      navigate(buildRouteWithCliente360Context(path, clienteId, {
+        origem: this.navigationContext?.origem || 'central'
+      }));
+      return;
+    }
+    navigate(routeWithActiveContext(path, this.navigationContext));
   }
 
   /**
@@ -172,6 +221,7 @@ class EntregaConsignacaoPage {
 
     container.appendChild(this._createIdentityLine());
     container.appendChild(this._createStatusBanner());
+    container.appendChild(this._createChecklistSection());
     container.appendChild(this._createItemsSection());
 
     return container;
@@ -196,18 +246,52 @@ class EntregaConsignacaoPage {
     const banner = document.createElement('div');
     const ready = this._canDeliver() && !this._precisaLiberacaoLimite();
     banner.className = `cds-entrega-status-banner ${ready ? 'cds-entrega-status-banner--ok' : 'cds-entrega-status-banner--block'}`;
+
     if (ready) {
       banner.textContent = 'Pronto para entregar';
-    } else if (this._precisaLiberacaoLimite()) {
-      banner.textContent = 'Liberação de limite necessária antes de entregar';
-    } else {
-      const pending = Object.entries(this.checklist || {})
-        .filter(([, ok]) => !ok)
-        .map(([k]) => k);
-      banner.textContent = pending.length
-        ? 'Revise os dados — há pendências para liberar a entrega'
-        : 'Aguardando validação';
+      return banner;
     }
+
+    if (this._precisaLiberacaoLimite()) {
+      banner.textContent = 'Liberação de limite necessária antes de entregar';
+      return banner;
+    }
+
+    const pending = this._pendenciasEntrega();
+    const title = document.createElement('div');
+    title.className = 'cds-entrega-status-banner__title';
+    title.textContent = 'Revise os dados — há pendências para liberar a entrega';
+    banner.appendChild(title);
+
+    if (pending.length) {
+      const list = document.createElement('ul');
+      list.className = 'cds-entrega-status-banner__list';
+      pending.forEach((p) => {
+        const li = document.createElement('li');
+        li.textContent = p.label;
+        list.appendChild(li);
+      });
+      banner.appendChild(list);
+    }
+
+    if (this._podeEditarRascunho()) {
+      const hint = document.createElement('p');
+      hint.className = 'cds-entrega-status-banner__hint';
+      hint.textContent = this.checklist.itensCadastrados
+        ? 'Abra o rascunho para corrigir os dados e voltar à entrega.'
+        : 'Esta consignação ainda não tem itens. Abra o rascunho para incluir produtos.';
+      banner.appendChild(hint);
+
+      const actions = document.createElement('div');
+      actions.className = 'cds-entrega-status-banner__actions';
+      actions.appendChild(Button.create({
+        text: this.checklist.itensCadastrados ? 'Abrir rascunho' : 'Incluir itens no rascunho',
+        variant: 'secondary',
+        onClick: () => this._abrirRascunhoParaRevisar()
+      }));
+      banner.appendChild(actions);
+    }
+
     return banner;
   }
 
@@ -324,16 +408,7 @@ class EntregaConsignacaoPage {
     title.textContent = 'Lista de verificação operacional';
     container.appendChild(title);
 
-    const checklistItems = [
-      { key: 'clienteValido', label: 'Cliente válido' },
-      { key: 'perfilAtivo', label: 'Cliente habilitado' },
-      { key: 'limiteSuficiente', label: 'Limite suficiente' },
-      { key: 'documentoValido', label: 'Documento válido' },
-      { key: 'itensCadastrados', label: 'Itens cadastrados' },
-      { key: 'quantidadesValidas', label: 'Quantidades válidas' },
-      { key: 'consignacaoRascunho', label: 'Consignação em RASCUNHO' },
-      { key: 'operadorAutorizado', label: 'Operador autorizado' }
-    ];
+    const checklistItems = this._checklistLabels();
 
     const checklistContainer = document.createElement('div');
     checklistContainer.className = 'cds-entrega-checklist__items';
@@ -463,6 +538,14 @@ class EntregaConsignacaoPage {
     const nodes = [];
     const canDeliver = this._canDeliver();
     const needsLiberacao = this._precisaLiberacaoLimite();
+
+    if (this._podeEditarRascunho() && !canDeliver) {
+      nodes.push(Button.create({
+        text: this.checklist.itensCadastrados ? 'Revisar rascunho' : 'Incluir itens no rascunho',
+        variant: 'secondary',
+        onClick: () => this._abrirRascunhoParaRevisar()
+      }));
+    }
 
     if (needsLiberacao) {
       nodes.push(Button.create({

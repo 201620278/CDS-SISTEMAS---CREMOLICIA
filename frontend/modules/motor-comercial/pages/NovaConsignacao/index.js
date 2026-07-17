@@ -275,7 +275,12 @@ class NovaConsignacaoPage {
     const clienteId = checkpoint.clienteId || entity.clienteId;
     if (clienteId) {
       const cliente = await buscarClientePorIdErp(clienteId);
-      if (cliente) await this._applyClientePerfil(cliente);
+      if (cliente) {
+        await this._applyClientePerfil(
+          cliente,
+          checkpoint.perfilComercialId || entity.perfilComercialId
+        );
+      }
     }
 
     const stepFromCheckpoint = Number.isInteger(checkpoint.step) ? checkpoint.step : null;
@@ -687,13 +692,25 @@ class NovaConsignacaoPage {
     this._updateWizard();
   }
 
-  async _applyClientePerfil(cliente) {
+  async _applyClientePerfil(cliente, preferredPerfilId = null) {
     const perfis = await this.api.listarPerfis({ clienteId: cliente.id, ativo: true });
-    const perfil = perfis.items.find((p) => p.perfilTipo === 'CONSIGNADO');
+    const items = Array.isArray(perfis?.items) ? perfis.items : [];
+    const preferredId = preferredPerfilId != null ? Number(preferredPerfilId) : null;
+
+    let perfil = null;
+    if (preferredId) {
+      perfil = items.find((p) => Number(p.id) === preferredId) || null;
+    }
+    if (!perfil) {
+      perfil = items.find((p) => String(p.perfilTipo || '').toUpperCase() === 'CONSIGNADO') || null;
+    }
+    if (!perfil) {
+      perfil = items[0] || null;
+    }
 
     if (!perfil) {
       notify(
-        perfis.items.length
+        items.length
           ? 'Cliente sem capacidade de Consignação ativa.'
           : 'Cliente sem perfil comercial ativo.',
         'warning'
@@ -702,7 +719,12 @@ class NovaConsignacaoPage {
       return;
     }
 
-    const situacao = await this.projectionApi.obterSituacaoCliente({ clienteId: cliente.id });
+    let situacao = null;
+    try {
+      situacao = await this.projectionApi.obterSituacaoCliente({ clienteId: cliente.id });
+    } catch (_e) {
+      situacao = null;
+    }
 
     this.clienteProfile = {
       id: perfil.id,
@@ -710,7 +732,7 @@ class NovaConsignacaoPage {
       documento: perfil.cpfCnpj || cliente.cpf_cnpj || cliente.documento || '—',
       telefone: cliente.telefone || perfil.telefone || '—',
       cidade: cliente.cidade || cliente.municipio || '—',
-      capacidades: extrairCapacidadesDosPerfis(perfis.items),
+      capacidades: extrairCapacidadesDosPerfis(items),
       perfilComercial: perfil.perfilTipo || 'CONSIGNADO',
       limiteComercial: Number(perfil.limiteComercial ?? situacao?.limiteComercial ?? 0),
       // STAB-02: crédito exclusivo da API (CreditoComercialService) — sem fallback local
@@ -852,7 +874,7 @@ class NovaConsignacaoPage {
     this._refreshCreditStrip();
 
     const painel = this.lipSimulacao?.painelProjetado
-      || buildPainelResumo(this.data.itens, this.clienteProfile);
+      || buildPainelResumo(this.data.itens, this.clienteProfile || {});
 
     const resumoEl = document.getElementById('prep-resumo-grade');
     if (resumoEl) {
@@ -1079,7 +1101,9 @@ class NovaConsignacaoPage {
 
       if (consignacao.clienteId) {
         const cliente = await buscarClientePorIdErp(consignacao.clienteId);
-        if (cliente) await this._applyClientePerfil(cliente);
+        if (cliente) {
+          await this._applyClientePerfil(cliente, consignacao.perfilComercialId);
+        }
       }
 
       this.currentStep = this.data.itens.length ? 1 : 0;

@@ -296,7 +296,7 @@ class PrepararEntregaView {
     title.textContent = 'Conferência';
     wrap.appendChild(title);
 
-    const painel = buildPainelResumo(state.data.itens, state.clienteProfile);
+    const painel = buildPainelResumo(state.data.itens, state.clienteProfile || {});
     const avisos = buildValidacoesConferencia(state.data, state.clienteProfile);
 
     if (avisos.length) {
@@ -400,7 +400,7 @@ class PrepararEntregaView {
 
   static _renderResumoCompactoGrade(state) {
     const painel = state.lipSimulacao?.painelProjetado
-      || buildPainelResumo(state.data.itens, state.clienteProfile);
+      || buildPainelResumo(state.data.itens, state.clienteProfile || {});
     const bar = document.createElement('div');
     bar.className = 'cds-preparar-entrega__resumo-grade';
     bar.id = 'prep-resumo-grade';
@@ -506,7 +506,7 @@ class PrepararEntregaView {
 
   static renderPainelLateral(state) {
     const painel = state.lipSimulacao?.painelProjetado
-      || buildPainelResumo(state.data.itens, state.clienteProfile);
+      || buildPainelResumo(state.data.itens, state.clienteProfile || {});
     const simulando = Boolean(state.lipSimulacao);
     const container = document.createElement('aside');
     container.className = `cds-preparar-entrega__painel${simulando ? ' cds-preparar-entrega__painel--simulando' : ''}`;

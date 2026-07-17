@@ -141,15 +141,16 @@ function buildMensagemInteligente(painel = {}) {
 }
 
 function buildPainelResumo(itens = [], clienteProfile = {}, painelBase = null) {
+  const profile = clienteProfile && typeof clienteProfile === 'object' ? clienteProfile : {};
   const { quantidadeItens, quantidadeTotal, valorTotal } = calcularTotaisItens(itens);
-  const limiteComercial = Number(clienteProfile.limiteComercial ?? 0);
+  const limiteComercial = Number(profile.limiteComercial ?? 0);
   // SSOT da API — nunca recalcular
   const creditoDisponivel = Number(
-    clienteProfile.creditoDisponivel ?? clienteProfile.limiteDisponivel ?? 0
+    profile.creditoDisponivel ?? profile.limiteDisponivel ?? 0
   );
   const limiteDisponivel = creditoDisponivel;
   const saldoAtual = Number(
-    clienteProfile.saldoDevedor ?? clienteProfile.saldo ?? 0
+    profile.saldoDevedor ?? profile.saldo ?? 0
   );
   const utilizacao = calcularUtilizacaoLimite(valorTotal, creditoDisponivel);
   const creditoAposEntrega = utilizacao.creditoAposEntrega;
@@ -167,7 +168,7 @@ function buildPainelResumo(itens = [], clienteProfile = {}, painelBase = null) {
 
   return {
     ...(painelBase || {}),
-    clienteNome: clienteProfile.nome || '—',
+    clienteNome: profile.nome || '—',
     quantidadeItens,
     quantidadeTotal,
     valorTotal,
@@ -179,7 +180,7 @@ function buildPainelResumo(itens = [], clienteProfile = {}, painelBase = null) {
     creditoDisponivelExibicao: formatCurrency(creditoDisponivel),
     saldoAtual,
     saldoDevedor: saldoAtual,
-    saldoCredor: Number(clienteProfile.saldoCredor ?? 0),
+    saldoCredor: Number(profile.saldoCredor ?? 0),
     saldoAposEntrega: saldoAtual + valorTotal,
     creditoAposEntrega,
     creditoAposEntregaExibicao: creditoAposEntrega != null
@@ -278,16 +279,17 @@ function buildValidacoesConferencia(data = {}, clienteProfile = {}, options = {}
 }
 
 function buildClienteResumo(clienteProfile = {}) {
+  const profile = clienteProfile && typeof clienteProfile === 'object' ? clienteProfile : {};
   return [
-    { label: 'Cliente', value: clienteProfile.nome || '—' },
-    { label: 'Telefone', value: clienteProfile.telefone || '—' },
-    { label: 'Cidade', value: clienteProfile.cidade || '—' },
+    { label: 'Cliente', value: profile.nome || '—' },
+    { label: 'Telefone', value: profile.telefone || '—' },
+    { label: 'Cidade', value: profile.cidade || '—' },
     {
       label: 'Capacidades',
-      value: (clienteProfile.capacidades || []).join(', ') || '—'
+      value: (profile.capacidades || []).join(', ') || '—'
     },
-    { label: 'Saldo Atual', value: formatCurrency(clienteProfile.saldo), highlight: true },
-    { label: 'Limite', value: formatCurrency(clienteProfile.limiteDisponivel ?? clienteProfile.limiteComercial) }
+    { label: 'Saldo Atual', value: formatCurrency(profile.saldo), highlight: true },
+    { label: 'Limite', value: formatCurrency(profile.limiteDisponivel ?? profile.limiteComercial) }
   ];
 }
 

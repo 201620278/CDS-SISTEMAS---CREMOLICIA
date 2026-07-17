@@ -68,6 +68,15 @@ function finalizarLoginComUsuario(req, res, usuario) {
 
     const terminalId = parsePositiveInteger(req.body?.terminal_id);
     const caixaSessaoId = parsePositiveInteger(req.body?.caixa_sessao_id);
+    const clienteTipo = String(
+      req.body?.cliente_tipo || req.headers['x-cds-client'] || ''
+    ).trim().toLowerCase() || null;
+    const clienteVersao = String(
+      req.body?.cliente_versao || req.headers['x-cds-client-version'] || ''
+    ).trim() || null;
+    const plataforma = String(
+      req.body?.plataforma || req.headers['x-cds-client-platform'] || ''
+    ).trim() || null;
 
     try {
       const token = jwt.sign(
@@ -80,7 +89,10 @@ function finalizarLoginComUsuario(req, res, usuario) {
           perfil: usuario.perfil || 'USUARIO',
           permissoes,
           terminal_id: terminalId,
-          caixa_sessao_id: caixaSessaoId
+          caixa_sessao_id: caixaSessaoId,
+          cliente_tipo: clienteTipo,
+          cliente_versao: clienteVersao,
+          plataforma
         },
         JWT_SECRET,
         { expiresIn: '8h' }
@@ -97,7 +109,16 @@ function finalizarLoginComUsuario(req, res, usuario) {
           nome: usuario.nome || usuario.username,
           permissoes,
           terminal_id: terminalId,
-          caixa_sessao_id: caixaSessaoId
+          caixa_sessao_id: caixaSessaoId,
+          cliente_tipo: clienteTipo,
+          cliente_versao: clienteVersao,
+          plataforma
+        },
+        cliente: {
+          tipo: clienteTipo,
+          versao: clienteVersao,
+          plataforma,
+          terminal_id: terminalId
         }
       });
 
@@ -278,7 +299,17 @@ router.post('/login', (req, res) => {
 });
 
 router.post('/verificar', verificarToken, (req, res) => {
-  res.json({ valid: true, user: req.user });
+  const user = req.user || {};
+  res.json({
+    valid: true,
+    user,
+    cliente: {
+      tipo: user.cliente_tipo || req.headers['x-cds-client'] || null,
+      versao: user.cliente_versao || req.headers['x-cds-client-version'] || null,
+      plataforma: user.plataforma || req.headers['x-cds-client-platform'] || null,
+      terminal_id: user.terminal_id || parsePositiveInteger(req.headers['x-terminal-id']) || null
+    }
+  });
 });
 
 router.post('/logout', verificarToken, (req, res) => {

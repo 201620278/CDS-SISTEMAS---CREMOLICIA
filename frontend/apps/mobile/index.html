@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="classic" class="theme-classic">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="CDS Mobile">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>CDS Mobile RC2.4.9</title>
+  <link rel="manifest" href="/apps/mobile/manifest.webmanifest?v=2.4.9-icon2">
+  <link rel="shortcut icon" href="/favicon.ico?v=2.4.9-icon2">
+  <link rel="icon" href="/favicon.ico?v=2.4.9-icon2" sizes="any">
+  <link rel="icon" type="image/png" sizes="16x16" href="/apps/mobile/icons/favicon-16.png?v=2.4.9-icon2">
+  <link rel="icon" type="image/png" sizes="32x32" href="/apps/mobile/icons/favicon-32.png?v=2.4.9-icon2">
+  <link rel="icon" type="image/png" sizes="48x48" href="/apps/mobile/icons/icon-48.png?v=2.4.9-icon2">
+  <link rel="icon" type="image/png" sizes="96x96" href="/apps/mobile/icons/icon-96.png?v=2.4.9-icon2">
+  <link rel="icon" type="image/png" sizes="192x192" href="/apps/mobile/icons/icon-192.png?v=2.4.9-icon2">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apps/mobile/icons/apple-touch-icon.png?v=2.4.9-icon2">
+  <meta name="msapplication-TileImage" content="/apps/mobile/icons/icon-192.png?v=2.4.9-icon2">
+  <meta name="msapplication-TileColor" content="#000000">
+
+  <link rel="stylesheet" href="/shared/design-system/index.css">
+  <!-- CDS Mobile RC2.4.9 | build 20260717rc249 | © 2026 CDS Sistemas | Auto-encerrar NFC-e -->
+  <link rel="stylesheet" href="/apps/mobile/css/mobile.css?v=2.4.9-rc2.4.9">
+  <script>
+    (function bootTheme() {
+      var KEY = 'cds-ui-theme';
+      var THEMES = ['classic', 'dark', 'high-contrast'];
+      var next = 'classic';
+      try {
+        var stored = localStorage.getItem(KEY);
+        if (THEMES.indexOf(stored) >= 0) next = stored;
+      } catch (e) {}
+      document.documentElement.setAttribute('data-theme', next);
+      THEMES.forEach(function (name) {
+        document.documentElement.classList.toggle('theme-' + name, name === next);
+      });
+    })();
+  </script>
+</head>
+<body class="cds-mobile" data-cds-ds>
+  <div id="mobile-app" class="cds-mobile-app" hidden>
+    <header class="cds-mobile-topbar" id="mobile-topbar">
+      <button type="button" class="cds-mobile-icon-btn" id="btn-open-drawer" aria-label="Abrir menu">
+        <span data-icon></span>
+      </button>
+      <div class="cds-mobile-topbar__titles">
+        <strong id="mobile-page-title">CDS Mobile</strong>
+        <span id="mobile-page-subtitle">Plataforma</span>
+      </div>
+      <button type="button" class="cds-mobile-icon-btn" id="btn-open-perfil" aria-label="Perfil">
+        <span data-icon></span>
+      </button>
+    </header>
+
+    <main class="cds-mobile-main" id="mobile-content" role="main" aria-live="polite"></main>
+
+    <nav class="cds-mobile-bottom-nav" id="mobile-bottom-nav" aria-label="Navegação principal">
+      <button type="button" class="cds-mobile-nav-item is-active" data-route="dashboard">
+        <span data-icon></span>
+        <span>Início</span>
+      </button>
+      <button type="button" class="cds-mobile-nav-item" data-route="cadastros">
+        <span data-icon></span>
+        <span>Cadastros</span>
+      </button>
+      <button type="button" class="cds-mobile-nav-item" data-route="comercial">
+        <span data-icon></span>
+        <span>Comercial</span>
+      </button>
+      <button type="button" class="cds-mobile-nav-item" data-route="financeiro">
+        <span data-icon></span>
+        <span>Financeiro</span>
+      </button>
+      <button type="button" class="cds-mobile-nav-item" data-route="mais">
+        <span data-icon></span>
+        <span>Mais</span>
+      </button>
+    </nav>
+  </div>
+
+  <div class="cds-mobile-drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="cds-mobile-drawer" id="mobile-drawer" aria-hidden="true" aria-label="Menu">
+    <div class="cds-mobile-drawer__header">
+      <img src="/apps/mobile/icons/icon-192.png" alt="" width="40" height="40"
+           onerror="this.onerror=null;this.src='/shared/img/logo-cds-sistemas.png'">
+      <div>
+        <strong>CDS Mobile RC2.0</strong>
+        <span id="drawer-user-name">Usuário</span>
+      </div>
+    </div>
+    <nav class="cds-mobile-drawer__nav">
+      <button type="button" data-route="dashboard"><span data-icon></span> Dashboard</button>
+      <p class="cds-drawer-group">Cadastros</p>
+      <button type="button" data-route="clientes"><span data-icon></span> Clientes</button>
+      <button type="button" data-route="fornecedores"><span data-icon></span> Fornecedores</button>
+      <button type="button" data-route="produtos"><span data-icon></span> Produtos</button>
+      <button type="button" data-route="usuarios"><span data-icon></span> Usuários</button>
+      <p class="cds-drawer-group">Operação</p>
+      <button type="button" data-route="comercial"><span data-icon></span> Comercial</button>
+      <button type="button" data-route="estoque"><span data-icon></span> Estoque</button>
+      <button type="button" data-route="financeiro"><span data-icon></span> Financeiro</button>
+      <button type="button" data-route="fiscal"><span data-icon></span> Fiscal</button>
+      <button type="button" data-route="pdv"><span data-icon></span> PDV</button>
+      <p class="cds-drawer-group">Sistema</p>
+      <button type="button" data-route="configuracoes"><span data-icon></span> Configurações</button>
+      <button type="button" data-route="perfil"><span data-icon></span> Perfil</button>
+    </nav>
+    <div class="cds-mobile-drawer__footer">
+      <button type="button" class="cds-mobile-btn cds-mobile-btn--ghost" id="btn-logout">
+        <span data-icon></span> Sair
+      </button>
+      <p class="cds-mobile-muted">RC2.4.9 · Auto-encerrar NFC-e</p>
+    </div>
+  </aside>
+
+  <div class="cds-mobile-boot" id="mobile-boot">
+    <div class="cds-mobile-boot__card">
+      <img src="/shared/img/logo-cds-sistemas.png" alt="CDS" width="64" height="64"
+           onerror="this.onerror=null;this.src='/apps/mobile/icons/icon-192.png'">
+      <p>Carregando CDS Mobile…</p>
+    </div>
+  </div>
+
+  <script src="/shared/platform/client.js"></script>
+  <script src="/shared/api/client.js?v=2.4.9-rc2.4.9"></script>
+  <script src="/shared/js/access-control.js"></script>
+  <script type="module" src="/apps/mobile/js/app.js?v=2.4.9-rc2.4.9"></script>
+</body>
+</html>

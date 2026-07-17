@@ -36,7 +36,25 @@ app.get('/api/ping', (req, res) => {
     res.json({ status: 'ok' });
 });
 
-app.use(express.static(path.join(__dirname, '../frontend')));
+// MIME correto para PWA (atalho/ícone no celular)
+express.static.mime.define({
+  'application/manifest+json': ['webmanifest'],
+  'image/png': ['png'],
+  'image/x-icon': ['ico']
+});
+app.use(express.static(path.join(__dirname, '../frontend'), {
+  setHeaders(res, filePath) {
+    if (/\.(png|ico|webmanifest)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  }
+}));
+// Favicon raiz → logo CDS (aba/atalho do navegador)
+app.get('/favicon.ico', (req, res) => {
+  res.type('image/x-icon');
+  res.sendFile(path.join(__dirname, '../frontend/apps/mobile/icons/favicon.ico'));
+});
+
 function getWritableStoragePath() {
     if (process.platform === 'win32') {
       return path.join(

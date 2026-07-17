@@ -142,6 +142,10 @@ function aplicarAlteracoesPosCriacao() {
   aplicarAlteracaoSegura('auditoria_caixa', `ALTER TABLE auditoria_caixa ADD COLUMN terminal_id INTEGER REFERENCES terminais(id)`);
   aplicarAlteracaoSegura('terminais', `ALTER TABLE terminais ADD COLUMN usuario_id INTEGER REFERENCES usuarios(id)`);
   aplicarAlteracaoSegura('terminais', `ALTER TABLE terminais ADD COLUMN usuario_nome TEXT`);
+  aplicarAlteracaoSegura('terminais', `ALTER TABLE terminais ADD COLUMN cliente_tipo TEXT`);
+  aplicarAlteracaoSegura('terminais', `ALTER TABLE terminais ADD COLUMN cliente_versao TEXT`);
+  aplicarAlteracaoSegura('terminais', `ALTER TABLE terminais ADD COLUMN plataforma TEXT`);
+  aplicarAlteracaoSegura('terminais', `ALTER TABLE terminais ADD COLUMN ultimo_ip TEXT`);
   aplicarAlteracaoSegura('caixa_sessoes', `ALTER TABLE caixa_sessoes ADD COLUMN caixa_turno_id INTEGER REFERENCES caixa(id)`);
 
   // Adicionar colunas faltantes na tabela vendas_itens (para suportar promoções e desconto atacado)

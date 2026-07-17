@@ -64,6 +64,13 @@ $('#loginForm').on('submit', function(e) {
         ? obterDestinoPosLogin(data.user)
         : '/erp';
 
+      try {
+        console.log('[CDS Mobile BOOT]', 'LOGIN OK');
+        console.log('[CDS Mobile BOOT]', 'TOKEN RECEBIDO', data.token ? 'sim' : 'não');
+        console.log('[CDS Mobile BOOT]', 'TOKEN SALVO');
+        console.log('[CDS Mobile BOOT]', 'REDIRECIONANDO', destino);
+      } catch (e) { /* ignore */ }
+
       window.location.replace(destino);
     },
     error: function(xhr) {

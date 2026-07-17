@@ -704,11 +704,8 @@ class PrestacaoContasPage {
         this._mostrarCupomFiscal(vendaIdDanfe, resultado?.fiscal || null);
         this._emitindoNfce = false;
         this.loading.operation = false;
-        await this._finalizarComVendaOficial({
-          emitirFiscal: false,
-          fechar: true,
-          skipConfirm: true
-        });
+        // Após NFC-e ok: encerra automaticamente (sem novo flush/confirmação).
+        await this._encerrarAposEmissaoNfce({ vendaId: vendaIdDanfe });
         return;
       }
 
@@ -722,11 +719,7 @@ class PrestacaoContasPage {
         });
         this._emitindoNfce = false;
         this.loading.operation = false;
-        await this._finalizarComVendaOficial({
-          emitirFiscal: false,
-          fechar: true,
-          skipConfirm: true
-        });
+        await this._encerrarAposEmissaoNfce({ vendaId });
         return;
       }
 
@@ -821,6 +814,98 @@ class PrestacaoContasPage {
       return;
     }
     this._abrirDanfe(vendaId);
+  }
+
+  /**
+   * Encerra a prestação logo após NFC-e (AUTORIZADA / NÃO APLICÁVEL).
+   * Não refaz flush da grade — a emissão já exigiu grade limpa.
+   * Fallback: POST /prestacao/fechar se finalizar-venda-oficial falhar.
+   */
+  async _encerrarAposEmissaoNfce({ vendaId = null } = {}) {
+    if (!this._canEncerrar()) {
+      notify('NFC-e ok, mas sem permissão para encerrar automaticamente.', 'warning');
+      return;
+    }
+
+    this.loading.operation = true;
+    this._updateFooter();
+    const t0 = Date.now();
+
+    try {
+      let resultado = null;
+      try {
+        resultado = await withLoading(
+          MENSAGENS_HARDENING.ENCERRANDO,
+          () => this.api.finalizarVendaOficial(this.consignacaoId, {
+            emitirFiscal: false,
+            fechar: true
+          })
+        );
+      } catch (errFinalize) {
+        // Fallback: só fecha a prestação (venda oficial já pode existir pela emissão)
+        await withLoading(
+          MENSAGENS_HARDENING.ENCERRANDO,
+          () => this.api.fecharPrestacao(this.consignacaoId, {})
+        );
+        resultado = { faturamento: this.faturamento };
+        this._pushLogOperacional('Encerramento via fecharPrestacao (fallback pós NFC-e)', {
+          erro: String(errFinalize?.message || errFinalize)
+        });
+      }
+
+      this.faturamento = resultado?.faturamento || this.faturamento;
+      this.encerrado = true;
+      this.dataEncerramento = new Date();
+      this.vendaOficial = resultado?.venda || { id: vendaId || this.faturamento?.vendaId };
+      this._recalcularPainel();
+
+      registrarLogEncerramento({
+        consignacao: this.consignacao || {},
+        financeiro: this.snapshot?.financeiro || {},
+        faturamento: this.faturamento,
+        usuario: null
+      });
+      registrarLogOperacional('ENCERRAR_PRESTACAO', {
+        consignacaoId: this.consignacaoId,
+        vendaOficial: this.faturamento?.vendaId || vendaId || null,
+        nfce: this.faturamento?.nfce || null,
+        resultado: 'ENCERRADA_POS_NFCE',
+        inicioMs: t0
+      });
+
+      notify(MENSAGENS_HARDENING.PRESTACAO_ENCERRADA || 'Prestação encerrada automaticamente após a NFC-e.', 'success');
+      this._pushLogOperacional('Prestação encerrada automaticamente após NFC-e', {
+        vendaId: this.faturamento?.vendaId || vendaId || null
+      });
+
+      const clienteId = this.consignacao?.clienteId || this.navigationContext.clienteId;
+      if (clienteId) {
+        try {
+          this.clienteDetalhe = await buscarClientePorIdErp(clienteId);
+        } catch (_error) {
+          this.clienteDetalhe = null;
+        }
+      }
+
+      this.currentStep = STEP_ENCERRAMENTO;
+      this.steps = inicializarMomentos(true);
+      await this._loadData(true, { skipUi: true });
+      this._updateUI();
+    } catch (error) {
+      notify(
+        humanizarErroOperacional(error).mensagem
+          || 'NFC-e emitida, mas não foi possível encerrar automaticamente. Use Encerrar.',
+        'warning'
+      );
+      registrarLogOperacional('ENCERRAR_PRESTACAO', {
+        consignacaoId: this.consignacaoId,
+        resultado: 'ERRO_POS_NFCE',
+        detalhes: { message: String(error?.message || error) }
+      });
+    } finally {
+      this.loading.operation = false;
+      this._updateFooter();
+    }
   }
 
   _abrirDanfe(vendaId) {

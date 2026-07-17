@@ -42,11 +42,32 @@ function obterSessaoAberta(terminalId, callback) {
     return callback(null, null);
   }
 
+  const finalizar = (err, sessao) => {
+    if (err) return callback(err);
+    if (!sessao) return callback(null, null);
+
+    // Impede sessões duplicadas abertas no mesmo terminal (bug histórico no Electron).
+    if (sessao.terminal_id) {
+      db.run(
+        `UPDATE caixa_sessoes
+         SET status = 'fechado',
+             fechado_em = COALESCE(fechado_em, DATETIME('now','localtime')),
+             observacoes = TRIM(COALESCE(observacoes,'') || ' [auto-fecho duplicata]')
+         WHERE status = 'aberto' AND terminal_id = ? AND id != ?`,
+        [sessao.terminal_id, sessao.id],
+        () => callback(null, sessao)
+      );
+      return;
+    }
+
+    callback(null, sessao);
+  };
+
   if (terminalId) {
     db.get(
       `SELECT * FROM caixa_sessoes WHERE status = 'aberto' AND terminal_id = ? ORDER BY id DESC LIMIT 1`,
       [terminalId],
-      callback
+      finalizar
     );
     return;
   }
@@ -54,7 +75,7 @@ function obterSessaoAberta(terminalId, callback) {
   db.get(
     `SELECT * FROM caixa_sessoes WHERE status = 'aberto' ORDER BY id DESC LIMIT 1`,
     [],
-    callback
+    finalizar
   );
 }
 
@@ -241,6 +262,8 @@ function calcularResumoCaixa(caixa, options = {}, callback) {
 const { exigirPermissaoOuSenhaAdmin } = require('../middleware/exigirPermissaoOuSenhaAdmin');
 
 router.get('/aberto', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
   const terminalId = obterTerminalId(req);
 
   if (isMultiCaixaAtivo() && !terminalId) {
@@ -252,7 +275,17 @@ router.get('/aberto', (req, res) => {
     if (sessao) {
       buscarCaixaTurnoDaSessao(sessao, (cErr, caixa) => {
         if (cErr) return res.status(500).json({ error: cErr.message });
-        if (!caixa) return res.json(null);
+        // Sessão órfã apontando para turno já fechado não deve manter a UI em "aberto"
+        if (!caixa || String(caixa.status || '').toLowerCase() === 'fechado') {
+          if (sessao.id) {
+            db.run(
+              `UPDATE caixa_sessoes SET status = 'fechado', fechado_em = COALESCE(fechado_em, DATETIME('now','localtime')) WHERE id = ?`,
+              [sessao.id],
+              () => {}
+            );
+          }
+          return res.json(null);
+        }
         calcularResumoCaixa(caixa, { sessaoId: sessao.id }, (calcErr, resumo) => {
           if (calcErr) return res.status(500).json({ error: calcErr.message });
           resumo.sessao = sessao;
@@ -716,9 +749,20 @@ router.post('/fechar', verificarToken, validarCaixaAberto, (req, res) => {
                     return res.status(500).json({ error: insertErr.message });
                   }
 
-                  // Atualizar sessão para fechado
-                  db.run(`UPDATE caixa_sessoes SET status = 'fechado', fechado_em = DATETIME('now','localtime'), valor_fechamento = ? WHERE id = ?`, [valorInformado, sessao.id], (sessUpdErr) => {
-                    if (sessUpdErr) console.error('Erro ao atualizar sessao:', sessUpdErr);
+                  // Atualizar sessão para fechado (+ duplicatas do mesmo terminal)
+                  db.run(
+                    `UPDATE caixa_sessoes
+                     SET status = 'fechado',
+                         fechado_em = DATETIME('now','localtime'),
+                         valor_fechamento = CASE WHEN id = ? THEN ? ELSE valor_fechamento END
+                     WHERE id = ?
+                        OR (status = 'aberto' AND terminal_id IS NOT NULL AND terminal_id = ?)`,
+                    [sessao.id, valorInformado, sessao.id, sessao.terminal_id || terminalId || -1],
+                    (sessUpdErr) => {
+                    if (sessUpdErr) {
+                      db.run('ROLLBACK');
+                      return res.status(500).json({ error: sessUpdErr.message });
+                    }
 
                     // Registrar auditoria
                     db.run(`

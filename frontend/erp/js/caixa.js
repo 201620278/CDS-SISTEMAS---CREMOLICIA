@@ -48,32 +48,64 @@ function dinheiro(v) {
   return formatCurrency(Number(v || 0));
 }
 
-function getTerminalRequestData(body = {}) {
-  if (typeof terminalId !== 'undefined' && terminalId !== null) {
-    body.terminal_id = terminalId;
+function obterTerminalIdCaixa() {
+  if (typeof obterTerminalIdPdv === 'function') {
+    const id = obterTerminalIdPdv();
+    if (id) return id;
   }
+  if (Number.isInteger(window.terminalId) && window.terminalId > 0) {
+    return window.terminalId;
+  }
+  if (typeof terminalId !== 'undefined' && Number.isInteger(terminalId) && terminalId > 0) {
+    return terminalId;
+  }
+  return null;
+}
+
+function getTerminalRequestData(body = {}) {
+  const id = obterTerminalIdCaixa();
+  if (id) body.terminal_id = id;
   return body;
 }
 
 function getTerminalRequestQuery(params = {}) {
-  if (typeof terminalId !== 'undefined' && terminalId !== null) {
-    params.terminal_id = terminalId;
-  }
+  const id = obterTerminalIdCaixa();
+  if (id) params.terminal_id = id;
   return params;
 }
 
-function carregarCaixaAberto() {
-  $.get(`${API_URL}/caixa/aberto`, getTerminalRequestQuery(), function(resumo) {
-    if (!resumo) {
-      renderStatusCaixa(null);
-      renderAbrirCaixa();
-      return;
-    }
+function forcarAtualizacaoUiCaixa() {
+  if (typeof limparModaisTravados === 'function') {
+    limparModaisTravados();
+  }
+  if (window.electronAPI && typeof window.electronAPI.forcarReflow === 'function') {
+    window.electronAPI.forcarReflow();
+  }
+}
 
-    renderStatusCaixa(resumo);
-    renderCaixaAberto(resumo);
-  }).fail(function(xhr) {
-    showNotification(xhr.responseJSON?.error || 'Erro ao carregar caixa.', 'danger');
+function carregarCaixaAberto() {
+  $.ajax({
+    url: `${API_URL}/caixa/aberto`,
+    method: 'GET',
+    cache: false,
+    data: getTerminalRequestQuery({ _ts: Date.now() }),
+    headers: {
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache'
+    },
+    success: function(resumo) {
+      if (!resumo) {
+        renderStatusCaixa(null);
+        renderAbrirCaixa();
+        return;
+      }
+
+      renderStatusCaixa(resumo);
+      renderCaixaAberto(resumo);
+    },
+    error: function(xhr) {
+      showNotification(xhr.responseJSON?.error || 'Erro ao carregar caixa.', 'danger');
+    }
   });
 }
 
@@ -148,6 +180,8 @@ function renderAbrirCaixa() {
     </div>
   `);
 
+  forcarAtualizacaoUiCaixa();
+  setTimeout(forcarAtualizacaoUiCaixa, 50);
   carregarSaldoInicialSugerido();
 }
 
@@ -426,25 +460,69 @@ function fecharCaixa() {
   const valorFechamento = pegarValorCampo('#valor-fechamento');
   const observacao = $('#observacao-fechamento').val();
 
-  if (!confirm('Tem certeza que deseja fechar o caixa?')) return;
+  const executarFechamento = function() {
+    $.ajax({
+      url: `${API_URL}/caixa/fechar`,
+      method: 'POST',
+      cache: false,
+      contentType: 'application/json',
+      data: JSON.stringify(getTerminalRequestData({
+        valor_informado: valorFechamento,
+        observacao
+      })),
+      success: function() {
+        showNotification('Caixa fechado com sucesso.', 'success');
+        requestAnimationFrame(function() {
+          setTimeout(function() {
+            if (typeof loadCaixa === 'function') loadCaixa();
+            else {
+              renderStatusCaixa(null);
+              renderAbrirCaixa();
+            }
+            forcarAtualizacaoUiCaixa();
+          }, 40);
+        });
+      },
+      error: function(xhr) {
+        showNotification(xhr.responseJSON?.error || 'Erro ao fechar caixa.', 'danger');
+      }
+    });
+  };
 
-  $.ajax({
-    url: `${API_URL}/caixa/fechar`,
-    method: 'POST',
-    contentType: 'application/json',
-    data: JSON.stringify(getTerminalRequestData({
-      valor_informado: valorFechamento,
-      observacao
-    })),
-    success: function(res) {
-      showNotification('Caixa fechado com sucesso.', 'success');
-      carregarCaixaAberto();
-      console.log('Resumo fechamento:', res.resumo);
-    },
-    error: function(xhr) {
-      showNotification(xhr.responseJSON?.error || 'Erro ao fechar caixa.', 'danger');
-    }
-  });
+  // confirm() nativo trava o paint no Electron após o diálogo.
+  if (window.electronAPI && typeof bootstrap !== 'undefined') {
+    const modalId = 'modalConfirmarCaixaErp';
+    $(`#${modalId}`).remove();
+    $('body').append(`
+      <div class="modal fade" id="${modalId}" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+              <h5 class="modal-title">Confirmar fechamento</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body"><p class="mb-0">Tem certeza que deseja fechar o caixa?</p></div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-danger" id="btnConfirmarFecharCaixaErp">Fechar Caixa</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+    const el = document.getElementById(modalId);
+    const modal = bootstrap.Modal.getOrCreateInstance(el);
+    $(el).one('click', '#btnConfirmarFecharCaixaErp', function() {
+      modal.hide();
+      setTimeout(executarFechamento, 30);
+    });
+    $(el).one('hidden.bs.modal', function() { $(`#${modalId}`).remove(); });
+    modal.show();
+    return;
+  }
+
+  if (!confirm('Tem certeza que deseja fechar o caixa?')) return;
+  executarFechamento();
 }
 
 function selecionarCaixaHoje() {

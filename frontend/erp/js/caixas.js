@@ -66,40 +66,72 @@ function rotuloTerminal(t) {
   return hostname || '—';
 }
 
+function rotuloTipoCliente(t) {
+  const tipo = String(t.cliente_tipo || t.plataforma || '').toLowerCase();
+  if (tipo === 'mobile') return '<span class="badge bg-info text-dark">Mobile</span>';
+  if (tipo === 'tablet') return '<span class="badge bg-info text-dark">Tablet</span>';
+  if (tipo === 'erp') return '<span class="badge bg-primary">ERP</span>';
+  if (tipo === 'pdv' || !tipo) return '<span class="badge bg-secondary">Desktop</span>';
+  return `<span class="badge bg-light text-dark">${escapeHtmlCaixas(tipo)}</span>`;
+}
+
 function renderizarTerminais() {
   const tbody = document.getElementById('tabelaTerminais');
   if (!tbody) return;
 
   if (!terminais.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">Nenhum dispositivo registrado. Abra o PDV em um computador cliente.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">Nenhum terminal registrado. Abra o PDV Desktop ou registre o CDS Mobile.</td></tr>';
     return;
   }
 
   tbody.innerHTML = terminais.map((t) => {
     const online = terminalEstaOnline(t.ultima_conexao, t.online);
-    const status = online
-      ? '<span class="badge bg-success">PDV ativo</span>'
+    const ativo = Number(t.ativo) !== 0;
+    const statusOnline = online
+      ? '<span class="badge bg-success">Online</span>'
       : '<span class="badge bg-secondary">Offline</span>';
+    const statusAtivo = ativo
+      ? ''
+      : ' <span class="badge bg-warning text-dark">Inativo</span>';
     const caixaNome = t.caixa_nome
       ? escapeHtmlCaixas(t.caixa_nome)
-      : '<span class="text-muted">Não vinculado</span>';
+      : '<span class="text-muted">—</span>';
+    const caixaAberto = Number(t.caixa_aberto) === 1
+      ? ' <span class="badge bg-success">Aberto</span>'
+      : ' <span class="badge bg-light text-dark">Fechado</span>';
     const nomeExibicao = escapeHtmlCaixas(rotuloTerminal(t));
-    const hostname = escapeHtmlCaixas(t.hostname || '—');
-    const nomeIgualHostname = !t.nome || t.nome === t.hostname;
     const usuarioTerminal = t.usuario_nome
       ? `<strong>${escapeHtmlCaixas(t.usuario_nome)}</strong>`
       : '<span class="text-muted">—</span>';
+    const ip = escapeHtmlCaixas(t.ultimo_ip || '—');
+    const versao = escapeHtmlCaixas(t.cliente_versao || '—');
 
-    return `<tr>
-      <td><strong>${nomeExibicao}</strong>${nomeIgualHostname ? ' <small class="text-muted">(sem nome)</small>' : ''}</td>
-      <td><code>${hostname}</code></td>
-      <td>${usuarioTerminal}</td>
-      <td>${caixaNome}</td>
-      <td>${status}</td>
-      <td><small>${formatarUltimaConexao(t.ultima_conexao)}</small></td>
+    return `<tr class="${ativo ? '' : 'table-secondary'}">
       <td>
-        <button class="btn btn-sm btn-outline-primary" onclick="editarTerminal(${t.id})" title="Nomear e vincular">
+        <strong>${nomeExibicao}</strong><br>
+        <small class="text-muted"><code>${escapeHtmlCaixas(t.hostname || '—')}</code></small>
+      </td>
+      <td>${rotuloTipoCliente(t)}</td>
+      <td>${statusOnline}${statusAtivo}</td>
+      <td><small>${ip}</small></td>
+      <td>${usuarioTerminal}</td>
+      <td><small>${formatarUltimaConexao(t.ultima_conexao)}</small></td>
+      <td><small>${versao}</small></td>
+      <td><code>${escapeHtmlCaixas(String(t.id))}</code></td>
+      <td>${caixaNome}${caixaAberto}</td>
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-primary" onclick="editarTerminal(${t.id})" title="Renomear / vincular">
           <i class="fas fa-edit"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="desconectarTerminal(${t.id})" title="Desconectar">
+          <i class="fas fa-unlink"></i>
+        </button>
+        ${ativo
+          ? `<button class="btn btn-sm btn-outline-warning" onclick="alternarAtivoTerminal(${t.id}, 0)" title="Desativar"><i class="fas fa-ban"></i></button>`
+          : `<button class="btn btn-sm btn-outline-success" onclick="alternarAtivoTerminal(${t.id}, 1)" title="Ativar"><i class="fas fa-check"></i></button>`
+        }
+        <button class="btn btn-sm btn-outline-danger" onclick="excluirTerminal(${t.id})" title="Excluir permanentemente">
+          <i class="fas fa-trash"></i>
         </button>
       </td>
     </tr>`;
@@ -322,6 +354,120 @@ async function salvarTerminal() {
   } catch (e) {
     console.error('Erro ao salvar terminal:', e);
     showNotification('Erro ao salvar dispositivo', 'danger');
+  }
+}
+
+function abrirModalNovoTerminal() {
+  document.getElementById('terminalNovoNome').value = '';
+  document.getElementById('terminalNovoHostname').value = '';
+  document.getElementById('terminalNovoTipo').value = 'mobile';
+  const modal = new bootstrap.Modal(document.getElementById('modalNovoTerminal'));
+  modal.show();
+}
+
+async function salvarNovoTerminal() {
+  const nome = document.getElementById('terminalNovoNome')?.value?.trim() || '';
+  const hostname = document.getElementById('terminalNovoHostname')?.value?.trim() || '';
+  const tipo = document.getElementById('terminalNovoTipo')?.value || 'mobile';
+  if (!nome || !hostname) {
+    showNotification('Informe nome e hostname do terminal', 'warning');
+    return;
+  }
+  try {
+    const resp = await fetch(`${apiUrlCaixas()}/terminais`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + tokenCaixas()
+      },
+      body: JSON.stringify({ nome, hostname, ativo: 1, cliente_tipo: tipo })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      showNotification(data.error || 'Erro ao registrar terminal', 'danger');
+      return;
+    }
+    showNotification('Terminal registrado', 'success');
+    bootstrap.Modal.getInstance(document.getElementById('modalNovoTerminal'))?.hide();
+    buscarTerminais();
+  } catch (e) {
+    showNotification('Erro ao registrar terminal', 'danger');
+  }
+}
+
+async function alternarAtivoTerminal(id, ativo) {
+  const terminal = terminais.find((t) => Number(t.id) === Number(id));
+  if (!terminal) return;
+  try {
+    const resp = await fetch(`${apiUrlCaixas()}/terminais/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + tokenCaixas()
+      },
+      body: JSON.stringify({
+        nome: terminal.nome || terminal.hostname,
+        hostname: terminal.hostname,
+        caixa_id: terminal.caixa_id || null,
+        ativo
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      showNotification(data.error || 'Erro ao atualizar terminal', 'danger');
+      return;
+    }
+    showNotification(ativo ? 'Terminal ativado' : 'Terminal desativado', 'success');
+    buscarTerminais();
+  } catch (e) {
+    showNotification('Erro ao atualizar terminal', 'danger');
+  }
+}
+
+async function desconectarTerminal(id) {
+  const terminal = terminais.find((t) => Number(t.id) === Number(id));
+  if (!terminal?.hostname) return;
+  if (!confirm('Desconectar heartbeat deste terminal?')) return;
+  try {
+    const params = new URLSearchParams({
+      hostname: terminal.hostname,
+      origem: 'erp'
+    });
+    const resp = await fetch(`${apiUrlCaixas()}/terminais/auto/offline?${params}`, {
+      headers: { 'Authorization': 'Bearer ' + tokenCaixas() }
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      showNotification(data.error || 'Erro ao desconectar', 'danger');
+      return;
+    }
+    showNotification('Terminal desconectado', 'success');
+    buscarTerminais();
+  } catch (e) {
+    showNotification('Erro ao desconectar terminal', 'danger');
+  }
+}
+
+async function excluirTerminal(id) {
+  const terminal = terminais.find((t) => Number(t.id) === Number(id));
+  const rotulo = terminal ? rotuloTerminal(terminal) : `#${id}`;
+  if (!confirm(`Excluir permanentemente o terminal "${rotulo}"?\n\nEsta ação remove o registro da Central de Terminais (não dá para desfazer).`)) {
+    return;
+  }
+  try {
+    const resp = await fetch(`${apiUrlCaixas()}/terminais/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + tokenCaixas() }
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      showNotification(data.error || 'Erro ao excluir terminal', 'danger');
+      return;
+    }
+    showNotification('Terminal excluído permanentemente', 'success');
+    buscarTerminais();
+  } catch (e) {
+    showNotification('Erro ao excluir terminal', 'danger');
   }
 }
 
