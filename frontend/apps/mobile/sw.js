@@ -3,7 +3,7 @@
  * Cache de assets estáticos. Nunca intercepta /api/*.
  * HTML/JS/ícones/manifest: network-first (evita ícone/atalho stale).
  */
-const CACHE = 'cds-mobile-2.4.9-icon2';
+const CACHE = 'cds-mobile-2.4.9-lista-produtos';
 const PRECACHE = [
   '/apps/mobile/manifest.webmanifest',
   '/apps/mobile/icons/favicon.ico',

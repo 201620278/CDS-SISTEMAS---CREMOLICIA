@@ -5,8 +5,8 @@
  */
 export const CDS_MOBILE_VERSION = '2.4.9-rc2.4.9';
 export const CDS_MOBILE_VERSION_LABEL = 'CDS Mobile RC2.4.9';
-export const CDS_MOBILE_BUILD = '20260717rc249';
-export const CDS_MOBILE_STATUS = 'rc2.4.9-auto-encerrar-nfce';
+export const CDS_MOBILE_BUILD = '20260717rc249fix1';
+export const CDS_MOBILE_STATUS = 'rc2.4.9-lista-produtos';
 
 export default {
   version: CDS_MOBILE_VERSION,

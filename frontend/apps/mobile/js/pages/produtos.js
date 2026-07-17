@@ -404,8 +404,12 @@ function cardProduto(p, { estoqueMode = false } = {}) {
 
 async function buscarProdutos(term, offset = 0) {
   const q = String(term || '').trim();
+  // Cadastro: listagem oficial = GET /produtos (mesmo do ERP Desktop).
+  // NÃO usar frequentes=1 aqui — só retorna itens com venda nos últimos 30 dias
+  // e deixa a tela vazia no celular quando não há histórico recente.
   if (!q) {
-    return window.CDSApi.get('produtos/search', { frequentes: 1, limite: PAGE_SIZE, offset: 0 });
+    if (offset > 0) return [];
+    return window.CDSApi.get('produtos');
   }
   return window.CDSApi.get('produtos/search', { q, limite: PAGE_SIZE, offset });
 }
@@ -497,7 +501,7 @@ export async function renderProdutos(root) {
   root.innerHTML = `
     ${searchBarHtml('Buscar produto, código ou EAN', 'produtos-search')}
     <p class="cds-muted" id="produtos-count"></p>
-    <div id="produtos-list">${loadingHtml()}</div>
+    <div id="produtos-list">${loadingHtml('Listando produtos…')}</div>
     <div id="produtos-more" class="cds-mobile-more"></div>
     ${fabHtml('Novo produto', 'produtos/novo')}
   `;
@@ -505,7 +509,9 @@ export async function renderProdutos(root) {
   let offset = 0;
   let term = '';
   let items = [];
+  let allCached = null;
   let hasMore = false;
+  const LIST_CHUNK = PAGE_SIZE;
 
   const paint = () => {
     const list = root.querySelector('#produtos-list');
@@ -514,7 +520,7 @@ export async function renderProdutos(root) {
     count.textContent = countLabel(items.length, 'produto', 'produtos');
     list.innerHTML = items.length
       ? items.map((p) => cardProduto(p)).join('')
-      : emptyHtml(term ? 'Nenhum produto encontrado' : 'Digite para buscar');
+      : emptyHtml(term ? 'Nenhum produto encontrado' : 'Nenhum produto cadastrado');
     bindGo(list);
     moreWrap.innerHTML = hasMore
       ? `<button type="button" class="cds-mobile-btn cds-mobile-btn--secondary" id="btn-more">Carregar mais</button>`
@@ -523,7 +529,30 @@ export async function renderProdutos(root) {
   };
 
   const fetchPage = async (reset) => {
-    const payload = await buscarProdutos(term, reset ? 0 : offset);
+    const q = String(term || '').trim();
+
+    // Lista completa (sem busca): carrega GET /produtos e pagina no cliente
+    if (!q) {
+      if (reset || !Array.isArray(allCached)) {
+        const payload = await buscarProdutos('', 0);
+        allCached = unwrapList(payload);
+        offset = 0;
+      }
+      const next = allCached.slice(offset, offset + LIST_CHUNK);
+      hasMore = offset + next.length < allCached.length;
+      if (reset) {
+        items = next;
+        offset = next.length;
+      } else {
+        items = items.concat(next);
+        offset += next.length;
+      }
+      paint();
+      return;
+    }
+
+    allCached = null;
+    const payload = await buscarProdutos(q, reset ? 0 : offset);
     const page = unwrapList(payload);
     hasMore = page.length >= PAGE_SIZE;
     if (reset) {
